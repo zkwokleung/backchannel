@@ -1,0 +1,42 @@
+# ─── Python / backend (server/) ───────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Node / app (app/) ────────────────────────────────────────
+node_modules/
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+
+# ─── Native / Expo build output ───────────────────────────────
+android/app/build/
+ios/build/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# ─── Runtime data / secrets ───────────────────────────────────
+*.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+cache/
+data/
+
+# ─── Editor / OS ──────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
