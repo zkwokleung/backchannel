@@ -51,13 +51,12 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.ui.common.EmptyState
-import com.zkwokleung.backchannel.ui.common.appViewModel
 import com.zkwokleung.backchannel.ui.common.formatMillis
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingScreen(onOpenVideo: () -> Unit) {
-    val viewModel = appViewModel { PlayerViewModel(it.playerConnection, it.queuePlayer) }
+    val viewModel = sharedPlayerViewModel()
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 

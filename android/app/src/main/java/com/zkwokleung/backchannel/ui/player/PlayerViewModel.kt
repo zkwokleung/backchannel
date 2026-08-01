@@ -1,5 +1,6 @@
 package com.zkwokleung.backchannel.ui.player
 
+import androidx.compose.runtime.Composable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
@@ -10,12 +11,23 @@ import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.playback.PlaybackItems
 import com.zkwokleung.backchannel.playback.PlayerConnection
 import com.zkwokleung.backchannel.playback.QueuePlayer
+import com.zkwokleung.backchannel.ui.common.appActivityViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+/**
+ * The one player ViewModel for the whole Activity.
+ *
+ * Every player surface — the mini-player, Now Playing, the video screen — goes through this, so
+ * they share one state and attach exactly one listener to the MediaController.
+ */
+@Composable
+fun sharedPlayerViewModel(): PlayerViewModel =
+    appActivityViewModel { PlayerViewModel(it.playerConnection, it.queuePlayer) }
 
 data class PlayerUiState(
     val connected: Boolean = false,

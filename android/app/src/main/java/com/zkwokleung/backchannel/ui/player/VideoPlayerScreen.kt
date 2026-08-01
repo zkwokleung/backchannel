@@ -28,12 +28,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.playback.PipCoordinator
-import com.zkwokleung.backchannel.ui.common.appViewModel
 
 @UnstableApi
 @Composable
 fun VideoPlayerScreen(onBack: () -> Unit) {
-    val viewModel = appViewModel { PlayerViewModel(it.playerConnection, it.queuePlayer) }
+    val viewModel = sharedPlayerViewModel()
     val controller by viewModel.controller.collectAsState()
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current

@@ -1,5 +1,11 @@
 package com.zkwokleung.backchannel.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
@@ -31,7 +37,10 @@ import androidx.navigation.navArgument
 import com.zkwokleung.backchannel.R
 import com.zkwokleung.backchannel.ui.channels.ChannelDetailScreen
 import com.zkwokleung.backchannel.ui.channels.ChannelsScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zkwokleung.backchannel.ui.player.MiniPlayer
 import com.zkwokleung.backchannel.ui.player.NowPlayingScreen
+import com.zkwokleung.backchannel.ui.player.sharedPlayerViewModel
 import com.zkwokleung.backchannel.ui.player.VideoPlayerScreen
 import com.zkwokleung.backchannel.ui.settings.SettingsScreen
 import com.zkwokleung.backchannel.ui.watchlists.WatchlistDetailScreen
@@ -76,6 +85,12 @@ fun AppRoot() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val onVideoScreen = currentDestination?.route == Routes.VIDEO
+    val onPlayingTab = currentDestination?.hierarchy?.any { it.route == Tab.NowPlaying.route } == true
+
+    val playerViewModel = sharedPlayerViewModel()
+    val playerState by playerViewModel.uiState.collectAsStateWithLifecycle()
+    // Hidden on the Playing tab: the full player is already on screen there.
+    val showMiniPlayer = playerState.hasItem && !onVideoScreen && !onPlayingTab
 
     Scaffold(
         // This Scaffold has no topBar, so it would otherwise hand the status-bar inset to the
@@ -85,16 +100,30 @@ fun AppRoot() {
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
             if (!onVideoScreen) {
-                NavigationBar {
-                    tabs.forEach { tab ->
-                        val selected = currentDestination?.hierarchy
-                            ?.any { it.route == tab.route } == true
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { navController.switchTab(tab.route) },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(stringResource(tab.labelRes)) },
+                Column {
+                    AnimatedVisibility(
+                        visible = showMiniPlayer,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                        MiniPlayer(
+                            state = playerState,
+                            onPlayPause = playerViewModel::playPause,
+                            onSkipForward = { playerViewModel.seekBy(30_000) },
+                            onOpen = { navController.switchTab(Tab.NowPlaying.route) },
                         )
+                    }
+                    NavigationBar {
+                        tabs.forEach { tab ->
+                            val selected = currentDestination?.hierarchy
+                                ?.any { it.route == tab.route } == true
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { navController.switchTab(tab.route) },
+                                icon = { Icon(tab.icon, contentDescription = null) },
+                                label = { Text(stringResource(tab.labelRes)) },
+                            )
+                        }
                     }
                 }
             }
