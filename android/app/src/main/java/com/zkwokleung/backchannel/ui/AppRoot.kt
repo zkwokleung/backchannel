@@ -1,7 +1,12 @@
 package com.zkwokleung.backchannel.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
@@ -132,6 +137,11 @@ fun AppRoot() {
         NavHost(
             navController = navController,
             startDestination = Tab.Channels.route,
+            // Tabs crossfade: a horizontal slide between siblings reads as broken, because tab
+            // order carries no direction and the bottom bar stays put. Detail routes below
+            // override this with a slide, which does have a direction.
+            enterTransition = { fadeIn(tween(140)) },
+            exitTransition = { fadeOut(tween(140)) },
             modifier = Modifier
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding),
@@ -156,6 +166,16 @@ fun AppRoot() {
             composable(
                 Routes.CHANNEL_DETAIL,
                 arguments = listOf(navArgument("channelId") { type = NavType.StringType }),
+                enterTransition = {
+                    slideInHorizontally(initialOffsetX = { it / 6 }, animationSpec = tween(260)) +
+                        fadeIn(tween(180))
+                },
+                exitTransition = { fadeOut(tween(120)) },
+                popEnterTransition = { fadeIn(tween(180)) },
+                popExitTransition = {
+                    slideOutHorizontally(targetOffsetX = { it / 6 }, animationSpec = tween(220)) +
+                        fadeOut(tween(160))
+                },
             ) { entry ->
                 val channelId = entry.arguments?.getString("channelId") ?: return@composable
                 ChannelDetailScreen(
@@ -168,6 +188,16 @@ fun AppRoot() {
             composable(
                 Routes.WATCHLIST_DETAIL,
                 arguments = listOf(navArgument("watchlistId") { type = NavType.LongType }),
+                enterTransition = {
+                    slideInHorizontally(initialOffsetX = { it / 6 }, animationSpec = tween(260)) +
+                        fadeIn(tween(180))
+                },
+                exitTransition = { fadeOut(tween(120)) },
+                popEnterTransition = { fadeIn(tween(180)) },
+                popExitTransition = {
+                    slideOutHorizontally(targetOffsetX = { it / 6 }, animationSpec = tween(220)) +
+                        fadeOut(tween(160))
+                },
             ) { entry ->
                 val watchlistId = entry.arguments?.getLong("watchlistId") ?: return@composable
                 WatchlistDetailScreen(
@@ -177,7 +207,17 @@ fun AppRoot() {
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                 )
             }
-            composable(Routes.VIDEO) {
+            composable(
+                Routes.VIDEO,
+                enterTransition = {
+                    slideInVertically(initialOffsetY = { it / 4 }, animationSpec = tween(240)) +
+                        fadeIn(tween(160))
+                },
+                popExitTransition = {
+                    slideOutVertically(targetOffsetY = { it / 4 }, animationSpec = tween(220)) +
+                        fadeOut(tween(160))
+                },
+            ) {
                 VideoPlayerScreen(onBack = { navController.popBackStack() })
             }
         }
