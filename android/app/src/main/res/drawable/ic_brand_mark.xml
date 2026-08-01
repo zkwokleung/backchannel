@@ -1,0 +1,36 @@
+<!-- The launcher icon's glyph: five rounded bars tapering into a play wedge.
+     Each bar is a round-capped stroke, which reproduces the master SVG's fully rounded rects
+     exactly. White by default; tint at the call site. Vector so the splash is crisp at every
+     density (it previously shipped as a single xxhdpi PNG) and so the mark can be reused in-app. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+
+    <path
+        android:pathData="M280,308 L280,716"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="76"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M396,360 L396,664"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="76"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M512,412 L512,612"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="76"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M628,464 L628,560"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="76"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M744,510 L744,514"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="76"
+        android:strokeLineCap="round" />
+</vector>

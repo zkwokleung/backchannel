@@ -1,5 +1,7 @@
 package com.zkwokleung.backchannel.ui
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayCircle
@@ -76,6 +78,11 @@ fun AppRoot() {
     val onVideoScreen = currentDestination?.route == Routes.VIDEO
 
     Scaffold(
+        // This Scaffold has no topBar, so it would otherwise hand the status-bar inset to the
+        // NavHost as content padding — and every screen's own Scaffold/TopAppBar applies that
+        // inset again, leaving a dead band above each title. Zero here, consumed below, so each
+        // inset is applied exactly once.
+        contentWindowInsets = WindowInsets(0),
         bottomBar = {
             if (!onVideoScreen) {
                 NavigationBar {
@@ -96,7 +103,9 @@ fun AppRoot() {
         NavHost(
             navController = navController,
             startDestination = Tab.Channels.route,
-            modifier = Modifier.padding(innerPadding),
+            modifier = Modifier
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding),
         ) {
             composable(Tab.Channels.route) {
                 ChannelsScreen(
