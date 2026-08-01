@@ -1,9 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+}
+
+// Release signing is opt-in: drop a keystore.properties next to this file (it is gitignored)
+// with storeFile/storePassword/keyAlias/keyPassword. Without it, release builds stay unsigned.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use(::load)
 }
 
 android {
@@ -27,6 +36,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (keystoreProps.isNotEmpty()) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -35,6 +55,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
@@ -49,9 +70,15 @@ android {
         buildConfig = true
     }
     packaging {
-        // youtubedl-android ships native libs; keep python zips uncompressed handling default
         jniLibs {
             useLegacyPackaging = true
+            // youtubedl-android ships its Python/ffmpeg payloads as .so-named zips; the NDK
+            // strip step can't parse them and must leave them untouched.
+            keepDebugSymbols += listOf(
+                "**/libpython.zip.so",
+                "**/libffmpeg.zip.so",
+                "**/libaria2c.zip.so",
+            )
         }
     }
 }

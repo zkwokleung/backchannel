@@ -3,6 +3,19 @@
 -keep class com.yausername.youtubedl_common.** { *; }
 -dontwarn com.yausername.**
 
+# Jackson (youtubedl-android parses yt-dlp output with it) resolves types reflectively;
+# without these R8 rewrites classes it instantiates and init fails with
+# "class … is not a concrete class".
+-keep class com.fasterxml.jackson.** { *; }
+-keep interface com.fasterxml.jackson.** { *; }
+-keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*
+-dontwarn com.fasterxml.jackson.**
+-dontwarn java.beans.**
+
+# commons-io / commons-compress unpack the bundled Python payload.
+-keep class org.apache.commons.** { *; }
+-dontwarn org.apache.commons.**
+
 # kotlinx.serialization
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.**

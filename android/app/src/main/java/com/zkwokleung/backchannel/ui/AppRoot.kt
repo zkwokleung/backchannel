@@ -20,6 +20,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -42,6 +43,20 @@ sealed class Tab(val route: String, val labelRes: Int, val icon: ImageVector) {
 }
 
 private val tabs = listOf(Tab.Channels, Tab.Watchlists, Tab.NowPlaying, Tab.Settings)
+
+/**
+ * Switches bottom-nav tabs, saving/restoring each tab's own back stack. Also used when a
+ * screen sends the user to another tab (e.g. "play" jumping to Now Playing) — going through
+ * [navigate] directly would nest that destination inside the current tab's stack, and the
+ * saved-state restore would then bounce the user back to it.
+ */
+private fun NavHostController.switchTab(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
 
 private object Routes {
     const val CHANNEL_DETAIL = "channel/{channelId}"
@@ -69,15 +84,7 @@ fun AppRoot() {
                             ?.any { it.route == tab.route } == true
                         NavigationBarItem(
                             selected = selected,
-                            onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            onClick = { navController.switchTab(tab.route) },
                             icon = { Icon(tab.icon, contentDescription = null) },
                             label = { Text(stringResource(tab.labelRes)) },
                         )
@@ -116,7 +123,7 @@ fun AppRoot() {
                 ChannelDetailScreen(
                     channelYoutubeId = channelId,
                     onBack = { navController.popBackStack() },
-                    onOpenNowPlaying = { navController.navigate(Tab.NowPlaying.route) },
+                    onOpenNowPlaying = { navController.switchTab(Tab.NowPlaying.route) },
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                 )
             }
@@ -128,7 +135,7 @@ fun AppRoot() {
                 WatchlistDetailScreen(
                     watchlistId = watchlistId,
                     onBack = { navController.popBackStack() },
-                    onOpenNowPlaying = { navController.navigate(Tab.NowPlaying.route) },
+                    onOpenNowPlaying = { navController.switchTab(Tab.NowPlaying.route) },
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                 )
             }

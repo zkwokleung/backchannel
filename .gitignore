@@ -24,3 +24,6 @@ android/captures/
 .DS_Store
 Thumbs.db
 *.log
+
+# Local release signing (never commit)
+android/keystore.properties
