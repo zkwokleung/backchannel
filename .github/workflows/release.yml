@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build and publish, e.g. v0.1.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        working-directory: .
+        run: |
+          tag="${{ github.event.inputs.version || github.ref_name }}"
+          case "$tag" in
+            v*) ;;
+            *) echo "::error::Version must start with 'v' (got '$tag')"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=${tag#v}" >> "$GITHUB_OUTPUT"
+          # Pre-release when the version carries a suffix like v1.0.0-beta.1
+          case "${tag#v}" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      # Signing is required: an unsigned APK cannot be installed, and publishing one
+      # signed with anything but the project's own key would lock users out of upgrades.
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Missing KEYSTORE_BASE64 secret. See docs/DEVELOPING.md for how to set up release signing."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APKs
+        env:
+          BACKCHANNEL_KEYSTORE: ${{ runner.temp }}/release.jks
+          BACKCHANNEL_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BACKCHANNEL_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          BACKCHANNEL_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          BACKCHANNEL_VERSION_NAME: ${{ steps.version.outputs.name }}
+          BACKCHANNEL_VERSION_CODE: ${{ github.run_number }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Verify APKs are signed
+        run: |
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          for apk in app/build/outputs/apk/release/*.apk; do
+            "$build_tools/apksigner" verify --print-certs "$apk" > /dev/null
+            echo "signed: $(basename "$apk")"
+          done
+
+      - name: Stage release assets
+        id: assets
+        run: |
+          version="${{ steps.version.outputs.name }}"
+          mkdir -p "$RUNNER_TEMP/assets"
+          for apk in app/build/outputs/apk/release/*.apk; do
+            abi=$(basename "$apk" | sed -E 's/^app-(.*)-release\.apk$/\1/')
+            cp "$apk" "$RUNNER_TEMP/assets/backchannel-${version}-${abi}.apk"
+          done
+          cd "$RUNNER_TEMP/assets"
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          notes_file="$RUNNER_TEMP/notes.md"
+          cat > "$notes_file" <<'EOF'
+          Install the APK matching your device — **arm64-v8a** is right for essentially every
+          modern phone. `universal` works on any device but is roughly three times larger.
+
+          Backchannel runs entirely on your device: no server, no account, nothing uploaded.
+          On first launch it updates its embedded yt-dlp before the first extraction, which
+          takes a few seconds.
+
+          Verify a download against `SHA256SUMS.txt` before installing.
+          EOF
+          flags=""
+          if [ "$PRERELEASE" = "true" ]; then flags="--prerelease"; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$RUNNER_TEMP"/assets/* --clobber
+          else
+            gh release create "$TAG" "$RUNNER_TEMP"/assets/* \
+              --title "Backchannel $TAG" \
+              --notes-file "$notes_file" \
+              $flags
+          fi

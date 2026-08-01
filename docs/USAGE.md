@@ -9,7 +9,9 @@ configuration beyond installing it.
 
 1. Download the APK for your device from the project's Releases page. `arm64-v8a` is right for
    essentially every modern phone; `universal` works everywhere but is ~3× larger.
-2. Allow installing from your browser/file manager when Android prompts, then open the APK.
+2. Optionally check it against `SHA256SUMS.txt` from the same release
+   (`sha256sum backchannel-*.apk`).
+3. Allow installing from your browser/file manager when Android prompts, then open the APK.
 
 **From source**
 

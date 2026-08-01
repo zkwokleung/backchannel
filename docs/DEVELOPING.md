@@ -53,16 +53,54 @@ saved-state restore bounces the user back to it.
 
 ## Release build
 
-Create `android/keystore.properties` (gitignored):
+Signing settings come from `android/keystore.properties` (gitignored) or, failing that, from
+environment variables. With neither, `assembleRelease` produces an **unsigned** APK, which
+Android will refuse to install.
 
 ```properties
+# android/keystore.properties
 storeFile=/absolute/path/to/release.jks
 storePassword=…
 keyAlias=…
 keyPassword=…
 ```
 
-Then `./gradlew assembleRelease`. Without that file the release build is simply unsigned.
+The environment equivalents are `BACKCHANNEL_KEYSTORE` (path), `BACKCHANNEL_KEYSTORE_PASSWORD`,
+`BACKCHANNEL_KEY_ALIAS`, and `BACKCHANNEL_KEY_PASSWORD`. `BACKCHANNEL_VERSION_NAME` and
+`BACKCHANNEL_VERSION_CODE` override the versions checked into `build.gradle.kts`.
+
+Then `./gradlew assembleRelease`, which emits per-ABI APKs (~17 MB) plus a universal one.
+
+## Publishing a release
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which runs the unit tests, builds
+signed release APKs, verifies each one's signature, and publishes a GitHub release with the
+APKs and a `SHA256SUMS.txt`. A version with a suffix (`v1.0.0-beta.1`) is marked pre-release.
+You can also trigger it manually from the Actions tab with a version input.
+
+The tag drives the version: `v0.2.0` builds `versionName` `0.2.0`, and `versionCode` comes from
+the workflow run number so it always increases.
+
+**One-time setup.** Create a keystore and keep it somewhere safe — losing it means you can never
+ship an upgrade to anyone who installed a previous build:
+
+```bash
+keytool -genkeypair -v -keystore release.jks -alias backchannel \
+  -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 release.jks    # macOS: base64 -i release.jks
+```
+
+Add four repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `KEYSTORE_BASE64` | the base64 output above |
+| `KEYSTORE_PASSWORD` | keystore password |
+| `KEY_ALIAS` | `backchannel` (or whatever alias you chose) |
+| `KEY_PASSWORD` | key password |
+
+The workflow fails fast with a clear message if `KEYSTORE_BASE64` is missing, rather than
+publishing an unsigned APK nobody can install.
 
 ## Testing on a device
 

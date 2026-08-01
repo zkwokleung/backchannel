@@ -8,12 +8,22 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// Release signing is opt-in: drop a keystore.properties next to this file (it is gitignored)
-// with storeFile/storePassword/keyAlias/keyPassword. Without it, release builds stay unsigned.
+// Release signing is opt-in and comes from either android/keystore.properties (gitignored,
+// for local builds) or BACKCHANNEL_KEYSTORE* environment variables (for CI secrets).
+// With neither, release builds stay unsigned.
 val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use(::load)
 }
+
+fun signingSetting(propertyKey: String, envKey: String): String? =
+    keystoreProps.getProperty(propertyKey) ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = signingSetting("storeFile", "BACKCHANNEL_KEYSTORE")
+
+// CI tags drive the version; local builds fall back to the values checked in here.
+val buildVersionName = System.getenv("BACKCHANNEL_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
+val buildVersionCode = System.getenv("BACKCHANNEL_VERSION_CODE")?.toIntOrNull() ?: 1
 
 android {
     namespace = "com.zkwokleung.backchannel"
@@ -23,8 +33,8 @@ android {
         applicationId = "com.zkwokleung.backchannel"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = buildVersionCode
+        versionName = buildVersionName
     }
 
     splits {
@@ -37,12 +47,12 @@ android {
     }
 
     signingConfigs {
-        if (keystoreProps.isNotEmpty()) {
+        if (releaseStoreFile != null) {
             create("release") {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
-                storePassword = keystoreProps.getProperty("storePassword")
-                keyAlias = keystoreProps.getProperty("keyAlias")
-                keyPassword = keystoreProps.getProperty("keyPassword")
+                storeFile = file(releaseStoreFile)
+                storePassword = signingSetting("storePassword", "BACKCHANNEL_KEYSTORE_PASSWORD")
+                keyAlias = signingSetting("keyAlias", "BACKCHANNEL_KEY_ALIAS")
+                keyPassword = signingSetting("keyPassword", "BACKCHANNEL_KEY_PASSWORD")
             }
         }
     }
