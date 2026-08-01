@@ -38,6 +38,20 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.zkwokleung.backchannel.data.db.WatchlistItemEntity
 import com.zkwokleung.backchannel.engine.StreamMode
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.zkwokleung.backchannel.ui.common.MediaRow
+import com.zkwokleung.backchannel.ui.common.Thumbnail
+import com.zkwokleung.backchannel.ui.theme.Spacing
 import com.zkwokleung.backchannel.ui.common.EmptyState
 import com.zkwokleung.backchannel.ui.common.appViewModel
 import com.zkwokleung.backchannel.ui.common.formatDuration
@@ -73,11 +87,15 @@ fun WatchlistDetailScreen(
         if (items.isEmpty()) {
             EmptyState(
                 modifier = Modifier.padding(padding),
+                icon = Icons.Filled.VideoLibrary,
                 title = "Nothing queued",
-                message = "Add videos from a channel's list to build this watchlist.",
+                message = "Add videos from a channel with the ⋮ menu, and they play here in order.",
             )
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(bottom = Spacing.lg),
+            ) {
                 itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                     WatchlistItemRow(
                         item = item,
@@ -112,55 +130,52 @@ private fun WatchlistItemRow(
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPlayAudio)
-            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        AsyncImage(
-            model = item.thumbnail,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .width(104.dp)
-                .height(58.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
-        Column(Modifier.weight(1f)) {
-            Text(
-                item.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                listOfNotNull(item.channelTitle, formatDuration(item.durationSeconds))
-                    .joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Column {
-            IconButton(onClick = onMoveUp, enabled = canMoveUp) {
-                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move up")
+    var menuOpen by remember { mutableStateOf(false) }
+
+    MediaRow(
+        title = item.title,
+        subtitle = listOfNotNull(item.channelTitle, formatDuration(item.durationSeconds))
+            .joinToString(" · "),
+        leading = { Thumbnail(item.thumbnail) },
+        onClick = onPlayAudio,
+        onClickLabel = "Listen",
+        trailing = {
+            // Four stacked icon buttons used to make this the tallest, most cramped row in the
+            // app and squeezed titles to two truncated lines; one menu matches the other screens.
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Listen (audio)") },
+                        leadingIcon = { Icon(Icons.Filled.PlayArrow, null) },
+                        onClick = { menuOpen = false; onPlayAudio() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Watch (video)") },
+                        leadingIcon = { Icon(Icons.Filled.OndemandVideo, null) },
+                        onClick = { menuOpen = false; onPlayVideo() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move up") },
+                        leadingIcon = { Icon(Icons.Filled.KeyboardArrowUp, null) },
+                        enabled = canMoveUp,
+                        onClick = { menuOpen = false; onMoveUp() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move down") },
+                        leadingIcon = { Icon(Icons.Filled.KeyboardArrowDown, null) },
+                        enabled = canMoveDown,
+                        onClick = { menuOpen = false; onMoveDown() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Remove") },
+                        leadingIcon = { Icon(Icons.Outlined.Delete, null) },
+                        onClick = { menuOpen = false; onRemove() },
+                    )
+                }
             }
-            IconButton(onClick = onMoveDown, enabled = canMoveDown) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move down")
-            }
-        }
-        Column {
-            IconButton(onClick = onPlayVideo) {
-                Icon(Icons.Filled.OndemandVideo, contentDescription = "Watch as video")
-            }
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Outlined.Delete, contentDescription = "Remove")
-            }
-        }
-    }
+        },
+    )
 }

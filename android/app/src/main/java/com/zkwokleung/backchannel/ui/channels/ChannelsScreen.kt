@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,7 +43,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.zkwokleung.backchannel.data.db.ChannelEntity
+import com.zkwokleung.backchannel.ui.common.ChannelAvatar
 import com.zkwokleung.backchannel.ui.common.EmptyState
+import com.zkwokleung.backchannel.ui.common.MediaRow
+import com.zkwokleung.backchannel.ui.theme.FabListClearance
 import com.zkwokleung.backchannel.ui.common.appViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,16 +69,34 @@ fun ChannelsScreen(onOpenChannel: (String) -> Unit) {
         if (channels.isEmpty()) {
             EmptyState(
                 modifier = Modifier.padding(padding),
+                icon = Icons.Filled.Subscriptions,
                 title = "No channels yet",
-                message = "Add a channel by its @handle or URL to start listening.",
+                message = "Add a channel by its @handle or URL, and its uploads become a listening queue.",
+                actionLabel = "Add a channel",
+                onAction = { showAddDialog = true },
             )
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                // Clears the FAB, which used to sit on top of the last row.
+                contentPadding = PaddingValues(bottom = FabListClearance),
+            ) {
                 items(channels, key = { it.youtubeId }) { channel ->
-                    ChannelRow(
-                        channel = channel,
+                    MediaRow(
+                        title = channel.title,
+                        subtitle = channel.handle,
+                        leading = { ChannelAvatar(channel.thumbnail) },
                         onClick = { onOpenChannel(channel.youtubeId) },
-                        onDelete = { pendingDelete = channel },
+                        onClickLabel = "Open channel",
+                        trailing = {
+                            IconButton(onClick = { pendingDelete = channel }) {
+                                Icon(
+                                    Icons.Outlined.Delete,
+                                    contentDescription = "Remove channel",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
                     )
                 }
             }
@@ -109,46 +132,6 @@ fun ChannelsScreen(onOpenChannel: (String) -> Unit) {
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
             },
         )
-    }
-}
-
-@Composable
-private fun ChannelRow(channel: ChannelEntity, onClick: () -> Unit, onDelete: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        AsyncImage(
-            model = channel.thumbnail,
-            contentDescription = null,
-            modifier = Modifier.size(48.dp).clip(CircleShape),
-        )
-        Column(Modifier.weight(1f)) {
-            Text(
-                channel.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            channel.handle?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Outlined.Delete,
-                contentDescription = "Remove channel",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 
