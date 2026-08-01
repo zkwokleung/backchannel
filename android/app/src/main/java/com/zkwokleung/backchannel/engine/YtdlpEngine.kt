@@ -78,6 +78,9 @@ class YtdlpEngine(
 
     private suspend fun performUpdate(): String? = updateMutex.withLock {
         withContext(dispatcher) {
+            // Recorded before the attempt so a failure still counts, keeping a broken update
+            // endpoint from re-downloading ahead of every extraction.
+            prefs.lastAttemptMillis = System.currentTimeMillis()
             try {
                 YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
             } catch (t: Throwable) {
@@ -97,7 +100,9 @@ class YtdlpEngine(
      * non-fatal — the app keeps working with whatever binary is present.
      */
     suspend fun updateIfDue(): String? {
-        if (!prefs.neverUpdated && !prefs.isCheckDue(System.currentTimeMillis())) return null
+        val now = System.currentTimeMillis()
+        val due = prefs.neverUpdated || prefs.isCheckDue(now)
+        if (!due || !prefs.isRetryDue(now)) return null
         return try {
             update()
         } catch (t: Throwable) {
@@ -186,7 +191,7 @@ class YtdlpEngine(
                 StreamMode.VIDEO ->
                     "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]"
             }
-            val raw = execute(watchUrl(videoId)) {
+            val raw = execute(watchUrl(videoId), allowFirstRunUpdate = false) {
                 addOption("--dump-single-json")
                 addOption("--no-playlist")
                 addOption("--skip-download")
@@ -228,8 +233,12 @@ class YtdlpEngine(
         return parsed
     }
 
-    private suspend fun execute(url: String, configure: YoutubeDLRequest.() -> Unit): String {
-        requireFreshEngine()
+    private suspend fun execute(
+        url: String,
+        allowFirstRunUpdate: Boolean = true,
+        configure: YoutubeDLRequest.() -> Unit,
+    ): String {
+        if (allowFirstRunUpdate) requireFreshEngine() else requireReady()
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-warnings")
             addOption("--ignore-config")
@@ -271,7 +280,7 @@ class YtdlpEngine(
      */
     private suspend fun requireFreshEngine() {
         requireReady()
-        if (prefs.neverUpdated) {
+        if (prefs.neverUpdated && prefs.isRetryDue(System.currentTimeMillis())) {
             runCatching { performUpdate() }
                 .onFailure { Log.w(TAG, "first-run yt-dlp update failed; using bundled binary", it) }
         }
@@ -297,19 +306,7 @@ class YtdlpEngine(
         private const val TAG = "YtdlpEngine"
         const val DEFAULT_LIST_LIMIT = 100
         private const val PLAYER_CLIENTS = "android_vr,web"
-        private const val STREAM_TTL_MILLIS = 30L * 60 * 1000 // 30 min, well under ~6h expiry
-    }
 
-    /** Normalizes @handle, bare handle, UC… id, or full URL to a canonical channel URL. */
-    internal fun normalizeChannelUrl(input: String): String {
-        val value = input.trim()
-        return when {
-            value.startsWith("http://") || value.startsWith("https://") ->
-                value.substringBefore('?').trimEnd('/')
-            value.startsWith("UC") && value.length == 24 ->
-                "https://www.youtube.com/channel/$value"
-            value.startsWith("@") -> "https://www.youtube.com/$value"
-            else -> "https://www.youtube.com/@$value"
-        }
+        private const val STREAM_TTL_MILLIS = 30L * 60 * 1000 // 30 min, well under ~6h expiry
     }
 }
