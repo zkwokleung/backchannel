@@ -33,9 +33,6 @@ class WatchlistDetailViewModel(
     val watchlist: StateFlow<WatchlistEntity?> = repository.observeWatchlist(watchlistId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val items: StateFlow<List<WatchlistItemEntity>> = repository.observeItems(watchlistId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     val rows: StateFlow<List<WatchlistRowUi>> = combine(
         repository.observeItems(watchlistId),
         playbackRepository.observeAll(),
@@ -49,7 +46,8 @@ class WatchlistDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun play(startItem: WatchlistItemEntity, mode: StreamMode) {
-        val list = items.value
+        // rows, not a second flow — see ChannelDetailViewModel.play.
+        val list = rows.value.map { it.item }
         val index = list.indexOfFirst { it.id == startItem.id }.coerceAtLeast(0)
         queuePlayer.playQueue(
             entries = list.map {

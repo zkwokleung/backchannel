@@ -43,7 +43,17 @@ data class PlayerUiState(
     val mode: StreamMode = StreamMode.AUDIO,
     val hasNext: Boolean = false,
     val hasPrevious: Boolean = false,
+    val speed: Float = 1f,
     val error: String? = null,
+)
+
+/** An upcoming item, built from the session timeline. */
+data class QueueItemUi(
+    val index: Int,
+    val mediaId: String,
+    val title: String,
+    val artist: String?,
+    val artworkUri: String?,
 )
 
 class PlayerViewModel(
@@ -55,6 +65,12 @@ class PlayerViewModel(
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     val controller: StateFlow<MediaController?> = connection.controller
+
+    private val _queue = MutableStateFlow<List<QueueItemUi>>(emptyList())
+
+    /** What plays after the current item. Kept out of [uiState] so the position ticker,
+     *  which fires twice a second, never invalidates it. */
+    val queue: StateFlow<List<QueueItemUi>> = _queue.asStateFlow()
 
     private var listener: Player.Listener? = null
     private var attachedController: MediaController? = null
@@ -88,6 +104,15 @@ class PlayerViewModel(
         val newListener = object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 syncFrom(player)
+                // Rebuilding a 100-item list on every position discontinuity would be pure
+                // waste; the queue only changes on these two events.
+                if (events.containsAny(
+                        Player.EVENT_TIMELINE_CHANGED,
+                        Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    )
+                ) {
+                    _queue.value = readQueue(player)
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -97,6 +122,7 @@ class PlayerViewModel(
         controller.addListener(newListener)
         listener = newListener
         syncFrom(controller)
+        _queue.value = readQueue(controller)
     }
 
     private fun syncFrom(player: Player) {
@@ -115,7 +141,29 @@ class PlayerViewModel(
             mode = item?.let(PlaybackItems::modeOf) ?: StreamMode.AUDIO,
             hasNext = player.hasNextMediaItem(),
             hasPrevious = player.hasPreviousMediaItem(),
+            speed = player.playbackParameters.speed,
         )
+    }
+
+    /**
+     * Upcoming items only. Reads nothing but `mediaId` and `mediaMetadata`: those are the fields
+     * guaranteed to survive the session boundary, whereas a MediaItem's local configuration is
+     * stripped when a timeline crosses it.
+     */
+    private fun readQueue(player: Player): List<QueueItemUi> {
+        if (!player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)) return emptyList()
+        val start = player.currentMediaItemIndex + 1
+        if (start >= player.mediaItemCount) return emptyList()
+        return (start until player.mediaItemCount).map { index ->
+            val item = player.getMediaItemAt(index)
+            QueueItemUi(
+                index = index,
+                mediaId = item.mediaId,
+                title = item.mediaMetadata.title?.toString().orEmpty(),
+                artist = item.mediaMetadata.artist?.toString(),
+                artworkUri = item.mediaMetadata.artworkUri?.toString(),
+            )
+        }
     }
 
     fun playPause() {
@@ -141,6 +189,16 @@ class PlayerViewModel(
     fun seekBy(deltaMs: Long) {
         val c = attachedController ?: return
         c.seekTo((c.currentPosition + deltaMs).coerceAtLeast(0))
+    }
+
+    /** Jumps to a queued item. A SEEK-reason transition, so skipped items are not marked played. */
+    fun playQueueItem(index: Int) {
+        attachedController?.seekToDefaultPosition(index)
+    }
+
+    fun setSpeed(speed: Float) {
+        val c = attachedController ?: return
+        if (c.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) c.setPlaybackSpeed(speed)
     }
 
     fun switchMode(mode: StreamMode) {

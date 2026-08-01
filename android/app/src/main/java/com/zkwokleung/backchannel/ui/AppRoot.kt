@@ -159,6 +159,7 @@ fun AppRoot() {
             composable(Tab.NowPlaying.route) {
                 NowPlayingScreen(
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
+                    onBrowseChannels = { navController.switchTab(Tab.Channels.route) },
                 )
             }
             composable(Tab.Settings.route) { SettingsScreen() }

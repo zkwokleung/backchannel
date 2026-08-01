@@ -38,9 +38,6 @@ class ChannelDetailViewModel(
     val channel: StateFlow<ChannelEntity?> = channelRepository.observeChannel(channelYoutubeId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val videos: StateFlow<List<VideoEntity>> = channelRepository.observeVideos(channelYoutubeId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     /** Uploads joined with playback history, so rows can show what has already been heard. */
     val rows: StateFlow<List<VideoRowUi>> = combine(
         channelRepository.observeVideos(channelYoutubeId),
@@ -83,7 +80,9 @@ class ChannelDetailViewModel(
 
     /** Plays this channel's uploads as a queue starting at [video], in [mode]. */
     fun play(video: VideoEntity, mode: StreamMode) {
-        val list = videos.value
+        // rows, not a second flow: the screen only collects rows, so an unsubscribed
+        // WhileSubscribed flow would sit empty here and queue nothing.
+        val list = rows.value.map { it.video }
         val index = list.indexOfFirst { it.youtubeId == video.youtubeId }.coerceAtLeast(0)
         val channelTitle = channel.value?.title
         queuePlayer.playQueue(

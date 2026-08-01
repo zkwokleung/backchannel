@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -54,7 +55,7 @@ fun Thumbnail(
 ) {
     Box(
         modifier
-            .width(width)
+            .then(if (width == Dp.Unspecified) Modifier.fillMaxWidth() else Modifier.width(width))
             .aspectRatio(aspectRatio)
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
