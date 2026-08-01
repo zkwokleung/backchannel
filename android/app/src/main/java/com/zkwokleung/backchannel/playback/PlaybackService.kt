@@ -2,6 +2,7 @@ package com.zkwokleung.backchannel.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -15,11 +16,14 @@ import com.zkwokleung.backchannel.MainActivity
 import com.zkwokleung.backchannel.appContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * Foreground media-playback service: hosts the app's single ExoPlayer behind a MediaSession,
@@ -74,19 +78,18 @@ class PlaybackService : MediaSessionService() {
                 mediaItem: androidx.media3.common.MediaItem?,
                 reason: Int,
             ) {
-                // A finished item transitioning by AUTO counts as completed.
+                // Advancing by itself means the previous item played to its end.
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                    previousItemId?.let { finishedId ->
-                        serviceScope.launch {
-                            container.playbackRepository.savePosition(
-                                finishedId,
-                                positionMillis = Long.MAX_VALUE / 2,
-                                durationMillis = 1,
-                            )
-                        }
-                    }
+                    previousItemId?.let(::markCompleted)
                 }
                 previousItemId = mediaItem?.mediaId
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                // The final item of a queue ends without any transition callback.
+                if (playbackState == Player.STATE_ENDED) {
+                    mediaSession?.player?.currentMediaItem?.mediaId?.let(::markCompleted)
+                }
             }
         })
 
@@ -102,14 +105,35 @@ class PlaybackService : MediaSessionService() {
     private var previousItemId: String? = null
 
     private fun savePosition() {
-        val session = mediaSession ?: return
-        val player = session.player
-        val mediaId = player.currentMediaItem?.mediaId ?: return
-        val position = player.currentPosition
-        val duration = player.duration.takeIf { it != C.TIME_UNSET }
+        val snapshot = positionSnapshot() ?: return
         serviceScope.launch {
-            appContainer.playbackRepository.savePosition(mediaId, position, duration)
+            appContainer.playbackRepository.savePosition(
+                snapshot.mediaId,
+                snapshot.positionMillis,
+                snapshot.durationMillis,
+            )
         }
+    }
+
+    private fun markCompleted(mediaId: String) {
+        serviceScope.launch { appContainer.playbackRepository.markCompleted(mediaId) }
+    }
+
+    private data class PositionSnapshot(
+        val mediaId: String,
+        val positionMillis: Long,
+        val durationMillis: Long?,
+    )
+
+    /** Reads player state on the caller's thread; the player must not be touched off-Main. */
+    private fun positionSnapshot(): PositionSnapshot? {
+        val player = mediaSession?.player ?: return null
+        val mediaId = player.currentMediaItem?.mediaId ?: return null
+        return PositionSnapshot(
+            mediaId = mediaId,
+            positionMillis = player.currentPosition,
+            durationMillis = player.duration.takeIf { it != C.TIME_UNSET },
+        )
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -123,7 +147,21 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        savePosition()
+        // The final write has to finish here: launching it on serviceScope would be cancelled
+        // below, and the process is often killed immediately after the service goes away.
+        positionSnapshot()?.let { snapshot ->
+            runBlocking {
+                withContext(NonCancellable) {
+                    runCatching {
+                        appContainer.playbackRepository.savePosition(
+                            snapshot.mediaId,
+                            snapshot.positionMillis,
+                            snapshot.durationMillis,
+                        )
+                    }.onFailure { Log.w(TAG, "final position save failed", it) }
+                }
+            }
+        }
         mediaSession?.run {
             player.release()
             release()
@@ -134,6 +172,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        private const val TAG = "PlaybackService"
         private const val POSITION_SAVE_INTERVAL_MS = 5_000L
     }
 }

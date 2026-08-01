@@ -37,10 +37,7 @@ class QueuePlayer(
         if (entries.isEmpty()) return
         scope.launch {
             val index = startIndex.coerceIn(entries.indices)
-            val resumeMs = playbackRepository.get(entries[index].videoId)
-                ?.takeIf { !it.completed }
-                ?.positionMillis
-                ?: 0L
+            val resumeMs = playbackRepository.resumePositionMillis(entries[index].videoId)
             val items = entries.map {
                 PlaybackItems.build(it.videoId, it.title, it.channelTitle, it.thumbnail, mode)
             }
