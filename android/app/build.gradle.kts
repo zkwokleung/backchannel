@@ -46,6 +46,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         // youtubedl-android ships native libs; keep python zips uncompressed handling default

@@ -30,8 +30,12 @@ class AppContainer(context: Context) {
     val queuePlayer = QueuePlayer(playerConnection, playbackRepository, applicationScope)
 
     init {
-        // Warm the yt-dlp runtime early so first extraction doesn't pay init cost.
-        applicationScope.launch { engine.initialize() }
+        // Warm the runtime and refresh yt-dlp early so the first extraction is fast and works
+        // against current YouTube (the shipped binary lags and extracts nothing).
+        applicationScope.launch {
+            engine.initialize()
+            engine.updateIfDue()
+        }
     }
 }
 

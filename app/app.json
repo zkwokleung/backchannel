@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Backchannel",
+    "slug": "backchannel",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/branding/icon.png",
+    "scheme": "backchannel",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.zkwokleung.backchannel",
+      "adaptiveIcon": {
+        "backgroundColor": "#4C2A9E",
+        "foregroundImage": "./assets/branding/adaptive-icon.png",
+        "monochromeImage": "./assets/branding/monochrome-icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#312E81",
+          "image": "./assets/branding/splash-icon.png",
+          "imageWidth": 120
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

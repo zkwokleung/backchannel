@@ -37,7 +37,9 @@ class YtdlpEngine(
     private val _initState = MutableStateFlow<InitState>(InitState.NotStarted)
     val initState: StateFlow<InitState> = _initState.asStateFlow()
 
+    private val prefs = EnginePrefs(appContext)
     private val initMutex = Mutex()
+    private val updateMutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val streamCache = ConcurrentHashMap<String, ResolvedStream>()
 
@@ -69,16 +71,39 @@ class YtdlpEngine(
     }
 
     /** Updates the bundled yt-dlp binary (stable channel). Returns the new version. */
-    suspend fun update(): String? = withContext(dispatcher) {
+    suspend fun update(): String? {
         requireReady()
-        try {
-            YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
-        } catch (t: Throwable) {
-            throw EngineException("yt-dlp update failed: ${t.message}", t)
+        return performUpdate()
+    }
+
+    private suspend fun performUpdate(): String? = updateMutex.withLock {
+        withContext(dispatcher) {
+            try {
+                YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
+            } catch (t: Throwable) {
+                throw EngineException("yt-dlp update failed: ${t.message}", t)
+            }
+            val version = currentVersion()
+            prefs.lastUpdateCheckMillis = System.currentTimeMillis()
+            _initState.value = InitState.Ready(version)
+            Log.i(TAG, "yt-dlp updated to $version")
+            version
         }
-        val version = currentVersion()
-        _initState.value = InitState.Ready(version)
-        version
+    }
+
+    /**
+     * Refreshes yt-dlp when it has never been updated (the shipped binary lags YouTube's
+     * changes and typically extracts nothing) or when the daily check is due. Failures are
+     * non-fatal — the app keeps working with whatever binary is present.
+     */
+    suspend fun updateIfDue(): String? {
+        if (!prefs.neverUpdated && !prefs.isCheckDue(System.currentTimeMillis())) return null
+        return try {
+            update()
+        } catch (t: Throwable) {
+            Log.w(TAG, "background yt-dlp update failed", t)
+            null
+        }
     }
 
     // ── Extraction ────────────────────────────────────────────────────────────
@@ -179,22 +204,27 @@ class YtdlpEngine(
         val raw = execute(url) {
             addOption("--dump-single-json")
             addOption("--flat-playlist")
-            addOption("--playlist-end", playlistEnd)
+            addOption("--playlist-end", playlistEnd.toString())
             addOption("--skip-download")
         }
-        return parse(raw, "playlist $url")
+        val parsed = parse<YtPlaylistJson>(raw, "playlist $url")
+        Log.i(TAG, "flat playlist $url -> ${raw.length} chars, ${parsed.entries.size} entries")
+        return parsed
     }
 
     private suspend fun execute(url: String, configure: YoutubeDLRequest.() -> Unit): String {
-        requireReady()
+        requireFreshEngine()
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-warnings")
             addOption("--ignore-config")
             configure()
         }
         return try {
-            YoutubeDL.getInstance().execute(request).out
+            val response = YoutubeDL.getInstance().execute(request)
+            if (response.err.isNotBlank()) Log.w(TAG, "yt-dlp stderr for $url: ${response.err.take(500)}")
+            response.out
         } catch (t: Throwable) {
+            Log.e(TAG, "yt-dlp failed for $url", t)
             throw EngineException("yt-dlp failed for $url: ${t.message}", t)
         }
     }
@@ -211,6 +241,19 @@ class YtdlpEngine(
             if (state !is InitState.Ready) {
                 throw EngineException("yt-dlp engine is not available: $state")
             }
+        }
+    }
+
+    /**
+     * Gate for extraction calls: the yt-dlp shipped inside youtubedl-android is normally months
+     * old and silently returns empty results against current YouTube, so the very first
+     * extraction waits for an update before running.
+     */
+    private suspend fun requireFreshEngine() {
+        requireReady()
+        if (prefs.neverUpdated) {
+            runCatching { performUpdate() }
+                .onFailure { Log.w(TAG, "first-run yt-dlp update failed; using bundled binary", it) }
         }
     }
 
