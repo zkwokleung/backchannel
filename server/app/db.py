@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
+from typing import Annotated
 
+from fastapi import Depends
 from sqlmodel import Field, Session, SQLModel, create_engine
 
 from .config import get_settings
@@ -74,3 +76,6 @@ def init_db() -> None:
 def get_session():
     with Session(get_engine()) as session:
         yield session
+
+
+SessionDep = Annotated[Session, Depends(get_session)]
