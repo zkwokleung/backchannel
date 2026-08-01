@@ -94,6 +94,17 @@ interface WatchlistDao {
     @Query("SELECT COALESCE(MAX(position), -1) FROM watchlist_items WHERE watchlistId = :watchlistId")
     suspend fun maxPosition(watchlistId: Long): Int
 
+    /**
+     * Appends [item] at the end of its watchlist. Returns false when the video is already in
+     * that watchlist (the unique index makes the insert a no-op). Transactional so two quick
+     * adds can't read the same max position and collide.
+     */
+    @Transaction
+    suspend fun appendItem(item: WatchlistItemEntity): Boolean {
+        val position = maxPosition(item.watchlistId) + 1
+        return insertItem(item.copy(position = position)) != -1L
+    }
+
     @Query("UPDATE watchlist_items SET position = :position WHERE id = :itemId")
     suspend fun updatePosition(itemId: Long, position: Int)
 

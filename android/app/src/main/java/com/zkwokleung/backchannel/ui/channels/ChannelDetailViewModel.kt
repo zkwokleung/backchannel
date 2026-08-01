@@ -73,8 +73,8 @@ class ChannelDetailViewModel(
 
     fun addToWatchlist(video: VideoEntity, watchlistId: Long) {
         viewModelScope.launch {
-            watchlistRepository.addVideo(watchlistId, video, channel.value?.title)
-            _message.value = "Added to watchlist"
+            val added = watchlistRepository.addVideo(watchlistId, video, channel.value?.title)
+            _message.value = if (added) "Added to watchlist" else "Already in that watchlist"
         }
     }
 

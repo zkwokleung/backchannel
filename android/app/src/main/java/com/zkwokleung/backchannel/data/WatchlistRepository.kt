@@ -30,22 +30,26 @@ class WatchlistRepository(private val watchlistDao: WatchlistDao) {
         watchlistDao.delete(id)
     }
 
-    /** Adds a video snapshot to a watchlist; no-op if it is already there. */
-    suspend fun addVideo(watchlistId: Long, video: VideoEntity, channelTitle: String?) {
-        val position = watchlistDao.maxPosition(watchlistId) + 1
-        watchlistDao.insertItem(
-            WatchlistItemEntity(
-                watchlistId = watchlistId,
-                videoYoutubeId = video.youtubeId,
-                position = position,
-                title = video.title,
-                thumbnail = video.thumbnail,
-                durationSeconds = video.durationSeconds,
-                channelTitle = channelTitle,
-                addedAt = System.currentTimeMillis(),
-            )
+    /**
+     * Adds a video snapshot to a watchlist. Returns false when it was already there, so callers
+     * can say so instead of claiming a success the user won't see in the list.
+     */
+    suspend fun addVideo(
+        watchlistId: Long,
+        video: VideoEntity,
+        channelTitle: String?,
+    ): Boolean = watchlistDao.appendItem(
+        WatchlistItemEntity(
+            watchlistId = watchlistId,
+            videoYoutubeId = video.youtubeId,
+            position = 0, // assigned inside appendItem
+            title = video.title,
+            thumbnail = video.thumbnail,
+            durationSeconds = video.durationSeconds,
+            channelTitle = channelTitle,
+            addedAt = System.currentTimeMillis(),
         )
-    }
+    )
 
     suspend fun removeItem(itemId: Long) = watchlistDao.deleteItem(itemId)
 

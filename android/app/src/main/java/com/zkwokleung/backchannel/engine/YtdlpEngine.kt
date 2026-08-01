@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
 class YtdlpEngine(
     private val appContext: Context,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-) {
+) : ChannelSource {
     sealed interface InitState {
         data object NotStarted : InitState
         data object Initializing : InitState
@@ -108,7 +108,7 @@ class YtdlpEngine(
 
     // ── Extraction ────────────────────────────────────────────────────────────
 
-    suspend fun resolveChannel(handleOrUrl: String): ChannelMeta = withContext(dispatcher) {
+    override suspend fun resolveChannel(handleOrUrl: String): ChannelMeta = withContext(dispatcher) {
         val url = normalizeChannelUrl(handleOrUrl) + "/videos"
         val parsed = runFlatPlaylist(url, playlistEnd = 1)
         val channelId = parsed.channelId
@@ -121,9 +121,9 @@ class YtdlpEngine(
         )
     }
 
-    suspend fun listChannelVideos(
+    override suspend fun listChannelVideos(
         channelYoutubeId: String,
-        limit: Int = DEFAULT_LIST_LIMIT,
+        limit: Int,
     ): List<VideoMeta> = withContext(dispatcher) {
         val url = "https://www.youtube.com/channel/$channelYoutubeId/videos"
         val parsed = runFlatPlaylist(url, playlistEnd = limit)
