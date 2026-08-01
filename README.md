@@ -2,62 +2,64 @@
 
 > **Working name** — *Backchannel* (background + channels). Placeholder; rename freely.
 
-A **personal, self-hosted media player** for the YouTube channels *you* follow. Browse your
-saved channels, build watchlists, and **listen to videos like a podcast** — background /
+A **personal, fully self-contained media player** for the YouTube channels *you* follow. Browse
+your saved channels, build watchlists, and **listen to videos like a podcast** — background /
 audio-only playback with lock-screen controls — or watch them with picture-in-picture.
 
-Backchannel ships **no content of its own**. It is a client that runs on hardware you
-control and fetches only what you explicitly request, using [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+Backchannel ships **no content of its own** and needs **no server, no account, no cloud**.
+Everything runs on your phone: [yt-dlp](https://github.com/yt-dlp/yt-dlp) is embedded directly
+in the app and fetches only what you explicitly request.
 
 ---
 
 ## How it works
 
-Because mobile devices can't run yt-dlp cleanly on-device — and because YouTube stream URLs
-are **IP-locked** to whoever resolves them — Backchannel is split in two:
+The app embeds a Python runtime via
+[youtubedl-android](https://github.com/yausername/youtubedl-android), so **yt-dlp runs
+on-device** — the same battle-tested approach used by apps like Seal. Because the phone itself
+resolves stream URLs, the URLs are valid for the phone (they are IP-locked to whoever resolves
+them), and playback streams directly from the source.
 
 ```
-Android App (Expo / TypeScript)          Self-Hosted Server (FastAPI / Python)
-───────────────────────────────          ─────────────────────────────────────
-Channels · Videos · Watchlists    ──►     REST API
-Now-Playing (background audio)    ──►     /stream/{id}?mode=audio ─► yt-dlp ─► proxy
-Video player (PiP)                ──►     /stream/{id}?mode=video ─► range-aware proxy
-Settings (server URL + API key)   ──►     X-API-Key auth · SQLite
+Android App (Expo / TypeScript)
+────────────────────────────────────────────────────────
+Channels · Videos · Watchlists   ──►  local SQLite
+Now-Playing (background audio)   ──►  on-device yt-dlp ─► direct stream URL ─► track-player
+Video player (PiP)               ──►  on-device yt-dlp ─► direct stream URL ─► expo-video
+Settings                         ──►  yt-dlp version + in-app updates
 ```
-
-You run the **server** (a Docker container) on a home box or VPS. The **Android app** points
-at your server. The server resolves streams with yt-dlp and **proxies** them to your phone.
 
 ## Components
 
-| Path       | Stack                                                           | Role                                           |
-|------------|-----------------------------------------------------------------|------------------------------------------------|
-| `server/`  | Python 3.12 · FastAPI · yt-dlp (as a library) · ffmpeg · SQLite | Resolves + proxies streams; stores your data   |
-| `app/`     | Expo (React Native) · TypeScript · react-native-track-player · expo-video | Android-first client                 |
+| Path                   | Stack                                                        | Role                                    |
+|------------------------|--------------------------------------------------------------|-----------------------------------------|
+| `app/`                 | Expo (React Native) · TypeScript · react-native-track-player · expo-video · expo-sqlite | The entire application |
+| `app/modules/ytdlp/`   | Expo Modules API (Kotlin) · youtubedl-android                | Native bridge that runs yt-dlp on-device |
 
 ## Status
 
 🚧 **Planning / pre-bootstrap.** No application code yet. See **[docs/PLAN.md](docs/PLAN.md)**
-for the full architecture and the phased build plan.
+for the architecture and the phased build plan.
 
 ## Platforms
 
-- **Android** — primary target (APK / F-Droid distribution; no App Store gatekeeper).
-- **iOS** — possible later via personal sideload / TestFlight only. Apple's App Store rejects
-  yt-dlp-backed apps, so iOS is not a distribution target.
+- **Android only** (APK / F-Droid distribution). The embedded-Python approach that makes the app
+  self-contained is not possible on iOS, and Apple's App Store rejects yt-dlp-backed apps.
 
-## Self-hosting model
+## Self-contained model
 
-Each user runs **their own** backend. Nothing is shared or centrally hosted. This keeps
-Backchannel firmly in personal-use territory and is why it can be open-sourced comfortably.
+Nothing leaves your device: subscriptions, watchlists, and playback history live in a local
+SQLite database. There is no backend to run, nothing is shared or hosted, and the app talks only
+to the services you point it at. This keeps Backchannel firmly in personal-use territory and is
+why it can be open-sourced comfortably.
 
 ## Legal & scope
 
 Backchannel is a **personal media client for content you are authorized to access**. It bundles
-no video, hosts nothing for others, and fetches only what its operator requests — the same
-posture as the yt-dlp tool it builds on.
+no video, hosts nothing, and fetches only what its operator requests — the same posture as the
+yt-dlp tool it builds on.
 
-- ✅ Personal, local/self-hosted use
+- ✅ Personal, on-device use
 - ❌ Not for re-hosting, re-distributing, or serving content to other people
 - ❌ Not for circumventing DRM or accessing paid/age-gated content
 
