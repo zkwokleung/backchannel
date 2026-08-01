@@ -36,17 +36,19 @@ and would silently return nothing. After that it re-checks once a day.
 The app fetches the channel's most recent 100 uploads and caches them on the device.
 
 **Listen** — tap any video to start audio-only playback. It keeps playing with the screen off
-and appears on your lock screen and in the notification shade with play/pause/skip controls.
+and appears on your lock screen and in the notification shade with play/pause/skip controls. A
+mini-player above the tab bar controls it from anywhere in the app.
 
 **Watch** — the **⋮** menu on any video offers *Watch (video)*, or use *Switch to video* from
 Now Playing. In the video screen, the picture-in-picture button (or pressing Home) shrinks it to
 a floating window that keeps playing.
 
 **Watchlists** — **⋮** → *Add to watchlist* to build a queue. Playing an entry plays the whole
-watchlist in order; reorder entries with the arrows.
+watchlist in order; the **⋮** menu on each entry moves it up or down.
 
-**Resume** — playback position is saved continuously. Reopen a video and it picks up where you
-stopped; anything past 95% is marked finished and starts over.
+**Resume** — playback position is saved continuously, and lists show how far through each video
+you are. Reopen one and it picks up where you stopped; an item you played to the end is marked
+finished and starts over.
 
 **Refresh** — pull down (or tap the refresh icon) on a channel to re-fetch its uploads.
 

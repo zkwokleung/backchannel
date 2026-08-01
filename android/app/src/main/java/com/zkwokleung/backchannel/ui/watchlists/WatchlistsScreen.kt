@@ -9,7 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
@@ -34,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.zkwokleung.backchannel.data.db.WatchlistEntity
 import com.zkwokleung.backchannel.ui.common.EmptyState
+import com.zkwokleung.backchannel.ui.common.MediaRow
+import com.zkwokleung.backchannel.ui.theme.FabListClearance
 import com.zkwokleung.backchannel.ui.common.appViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,29 +65,57 @@ fun WatchlistsScreen(onOpenWatchlist: (Long) -> Unit) {
         if (watchlists.isEmpty()) {
             EmptyState(
                 modifier = Modifier.padding(padding),
+                icon = Icons.Filled.VideoLibrary,
                 title = "No watchlists",
-                message = "Create a watchlist, then queue videos to it from any channel.",
+                message = "A watchlist is a queue you build yourself — add videos to it from any channel.",
+                actionLabel = "New watchlist",
+                onAction = { showCreate = true },
             )
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(bottom = FabListClearance),
+            ) {
                 items(watchlists, key = { it.id }) { watchlist ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpenWatchlist(watchlist.id) }
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(watchlist.name, style = MaterialTheme.typography.titleMedium)
-                        }
-                        IconButton(onClick = { renameTarget = watchlist }) {
-                            Icon(Icons.Outlined.Edit, contentDescription = "Rename")
-                        }
-                        IconButton(onClick = { deleteTarget = watchlist }) {
-                            Icon(Icons.Outlined.Delete, contentDescription = "Delete")
-                        }
-                    }
+                    MediaRow(
+                        title = watchlist.name,
+                        leading = {
+                            // A leading mark gives these rows the same rhythm as the video
+                            // lists, which all lead with a thumbnail.
+                            Box(
+                                Modifier
+                                    .size(48.dp)
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.VideoLibrary,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                        },
+                        onClick = { onOpenWatchlist(watchlist.id) },
+                        onClickLabel = "Open watchlist",
+                        trailing = {
+                            IconButton(onClick = { renameTarget = watchlist }) {
+                                Icon(
+                                    Icons.Outlined.Edit,
+                                    contentDescription = "Rename",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            IconButton(onClick = { deleteTarget = watchlist }) {
+                                Icon(
+                                    Icons.Outlined.Delete,
+                                    contentDescription = "Delete",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                    )
                 }
             }
         }

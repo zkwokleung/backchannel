@@ -15,6 +15,14 @@ val VioletSoft = Color(0xFFA78BFA)
 val GlyphTint = Color(0xFFDDD6FE)
 
 /**
+ * Video-surface colours. These deliberately do not follow the theme: letterbox bars must be
+ * black whatever the app theme is, and controls overlay arbitrary video frames, so they need a
+ * fixed tint plus a scrim rather than a theme colour that might vanish against the picture.
+ */
+val PlayerSurface = Color(0xFF000000)
+val PlayerControlTint = Color(0xFFFFFFFF)
+
+/**
  * Colors are deliberately fixed rather than derived from the wallpaper: the app should look like
  * Backchannel on every device, and match its own launcher icon.
  *
