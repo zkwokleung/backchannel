@@ -81,7 +81,7 @@ class YtdlpEngine(
             try {
                 YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
             } catch (t: Throwable) {
-                throw EngineException("yt-dlp update failed: ${t.message}", t)
+                throw EngineException(friendlyMessage(t.message), t)
             }
             val version = currentVersion()
             prefs.lastUpdateCheckMillis = System.currentTimeMillis()
@@ -112,7 +112,7 @@ class YtdlpEngine(
         val url = normalizeChannelUrl(handleOrUrl) + "/videos"
         val parsed = runFlatPlaylist(url, playlistEnd = 1)
         val channelId = parsed.channelId
-            ?: throw EngineException("Could not resolve channel: $handleOrUrl")
+            ?: throw EngineException("Couldn't find that channel — check the handle or URL.")
         ChannelMeta(
             youtubeId = channelId,
             handle = parsed.uploaderId,
@@ -197,7 +197,7 @@ class YtdlpEngine(
             }
             val parsed = parse<YtVideoJson>(raw, "stream $videoId")
             val url = parsed.url
-                ?: throw EngineException("yt-dlp returned no direct URL for $videoId ($mode)")
+                ?: throw EngineException("No playable stream for that video.")
             val stream = ResolvedStream(
                 videoId = videoId,
                 mode = mode,
@@ -241,21 +241,25 @@ class YtdlpEngine(
             response.out
         } catch (t: Throwable) {
             Log.e(TAG, "yt-dlp failed for $url", t)
-            throw EngineException("yt-dlp failed for $url: ${t.message}", t)
+            throw EngineException(friendlyMessage(t.message), t)
         }
     }
 
     private inline fun <reified T> parse(raw: String, what: String): T = try {
         json.decodeFromString<T>(raw.trim())
     } catch (t: Throwable) {
-        throw EngineException("Could not parse yt-dlp output for $what", t)
+        Log.e(TAG, "could not parse yt-dlp output for $what", t)
+        throw EngineException(
+            "Couldn't read YouTube's response. Update yt-dlp in Settings and try again.",
+            t,
+        )
     }
 
     private suspend fun requireReady() {
         if (_initState.value !is InitState.Ready) {
             val state = initialize()
             if (state !is InitState.Ready) {
-                throw EngineException("yt-dlp engine is not available: $state")
+                throw EngineException("The yt-dlp engine failed to start. Check Settings.")
             }
         }
     }

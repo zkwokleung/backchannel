@@ -42,8 +42,12 @@ Settings                        ──►  yt-dlp version + in-app updates
 
 ## Status
 
-🚧 **In development.** See **[docs/PLAN.md](docs/PLAN.md)** for the architecture and the phased
-build plan.
+**Working.** Add channels, browse uploads, background audio with lock-screen controls,
+video with picture-in-picture, watchlists, and resume-where-you-left-off all function on device.
+
+- **[docs/USAGE.md](docs/USAGE.md)** — install and use it
+- **[docs/DEVELOPING.md](docs/DEVELOPING.md)** — build it, and the non-obvious constraints
+- **[docs/PLAN.md](docs/PLAN.md)** — architecture and build plan
 
 ## Platforms
 
