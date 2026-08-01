@@ -54,7 +54,14 @@ import coil.compose.AsyncImage
 import com.zkwokleung.backchannel.data.db.VideoEntity
 import com.zkwokleung.backchannel.data.db.WatchlistEntity
 import com.zkwokleung.backchannel.engine.StreamMode
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.draw.alpha
 import com.zkwokleung.backchannel.ui.common.EmptyState
+import com.zkwokleung.backchannel.ui.common.EqualizerIndicator
+import com.zkwokleung.backchannel.ui.common.MediaRow
+import com.zkwokleung.backchannel.ui.common.PlaybackProgressUi
+import com.zkwokleung.backchannel.ui.common.Thumbnail
+import com.zkwokleung.backchannel.ui.player.sharedPlayerViewModel
 import com.zkwokleung.backchannel.ui.common.appViewModel
 import com.zkwokleung.backchannel.ui.common.formatDuration
 
@@ -71,11 +78,13 @@ fun ChannelDetailScreen(
             channelYoutubeId,
             it.channelRepository,
             it.watchlistRepository,
+            it.playbackRepository,
             it.queuePlayer,
         )
     }
     val channel by viewModel.channel.collectAsState()
-    val videos by viewModel.videos.collectAsState()
+    val rows by viewModel.rows.collectAsState()
+    val playerState by sharedPlayerViewModel().uiState.collectAsState()
     val watchlists by viewModel.watchlists.collectAsState()
     val refreshing by viewModel.refreshing.collectAsState()
     val message by viewModel.message.collectAsState()
@@ -115,7 +124,7 @@ fun ChannelDetailScreen(
             onRefresh = viewModel::refresh,
             modifier = Modifier.padding(padding).fillMaxSize(),
         ) {
-            if (videos.isEmpty()) {
+            if (rows.isEmpty()) {
                 // Scrollable so the pull-to-refresh gesture is still delivered when empty.
                 LazyColumn(Modifier.fillMaxSize()) {
                     item {
@@ -128,9 +137,13 @@ fun ChannelDetailScreen(
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(videos, key = { it.youtubeId }) { video ->
+                    items(rows, key = { it.video.youtubeId }) { row ->
+                        val video = row.video
                         VideoRow(
                             video = video,
+                            progress = row.progress,
+                            isCurrent = playerState.mediaId == video.youtubeId,
+                            isPlaying = playerState.isPlaying,
                             onPlayAudio = {
                                 viewModel.play(video, StreamMode.AUDIO)
                                 onOpenNowPlaying()
@@ -166,65 +179,81 @@ fun ChannelDetailScreen(
 @Composable
 private fun VideoRow(
     video: VideoEntity,
+    progress: PlaybackProgressUi,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
     onPlayAudio: () -> Unit,
     onPlayVideo: () -> Unit,
     onAddToWatchlist: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPlayAudio)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        AsyncImage(
-            model = video.thumbnail,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .width(120.dp)
-                .height(68.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
-        Column(Modifier.weight(1f)) {
-            Text(
-                video.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                formatDuration(video.durationSeconds),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Box {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+    val played = progress is PlaybackProgressUi.Played
+
+    MediaRow(
+        title = video.title,
+        subtitle = listOfNotNull(
+            formatDuration(video.durationSeconds),
+            "Played".takeIf { played },
+        ).joinToString(" · "),
+        titleColor = if (played && !isCurrent) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else if (isCurrent) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        badge = if (isCurrent) {
+            { EqualizerIndicator(playing = isPlaying) }
+        } else {
+            null
+        },
+        leading = {
+            Thumbnail(
+                model = video.thumbnail,
+                modifier = Modifier.alpha(if (played) 0.45f else 1f),
+            ) {
+                // Resume progress sits on the thumbnail's bottom edge, costing no row height.
+                if (progress is PlaybackProgressUi.InProgress) {
+                    LinearProgressIndicator(
+                        progress = { progress.fraction },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(3.dp),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        trackColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f),
+                        drawStopIndicator = {},
+                    )
+                }
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Listen (audio)") },
-                    leadingIcon = { Icon(Icons.Filled.PlayArrow, null) },
-                    onClick = { menuOpen = false; onPlayAudio() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Watch (video)") },
-                    leadingIcon = { Icon(Icons.Filled.OndemandVideo, null) },
-                    onClick = { menuOpen = false; onPlayVideo() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Add to watchlist") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) },
-                    onClick = { menuOpen = false; onAddToWatchlist() },
-                )
+        },
+        onClick = onPlayAudio,
+        onClickLabel = "Listen",
+        trailing = {
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Listen (audio)") },
+                        leadingIcon = { Icon(Icons.Filled.PlayArrow, null) },
+                        onClick = { menuOpen = false; onPlayAudio() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Watch (video)") },
+                        leadingIcon = { Icon(Icons.Filled.OndemandVideo, null) },
+                        onClick = { menuOpen = false; onPlayVideo() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add to watchlist") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) },
+                        onClick = { menuOpen = false; onAddToWatchlist() },
+                    )
+                }
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable

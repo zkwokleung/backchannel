@@ -2,20 +2,31 @@ package com.zkwokleung.backchannel.ui.watchlists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zkwokleung.backchannel.data.PlaybackRepository
 import com.zkwokleung.backchannel.data.WatchlistRepository
 import com.zkwokleung.backchannel.data.db.WatchlistEntity
 import com.zkwokleung.backchannel.data.db.WatchlistItemEntity
 import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.playback.QueueEntry
 import com.zkwokleung.backchannel.playback.QueuePlayer
+import com.zkwokleung.backchannel.ui.common.PlaybackProgressUi
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** A queued item plus how far through it the listener already is. */
+data class WatchlistRowUi(
+    val item: WatchlistItemEntity,
+    val progress: PlaybackProgressUi,
+)
+
 class WatchlistDetailViewModel(
     private val watchlistId: Long,
     private val repository: WatchlistRepository,
+    private val playbackRepository: PlaybackRepository,
     private val queuePlayer: QueuePlayer,
 ) : ViewModel() {
 
@@ -23,6 +34,18 @@ class WatchlistDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val items: StateFlow<List<WatchlistItemEntity>> = repository.observeItems(watchlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val rows: StateFlow<List<WatchlistRowUi>> = combine(
+        repository.observeItems(watchlistId),
+        playbackRepository.observeAll(),
+    ) { items, states ->
+        val byId = states.associateBy { it.videoYoutubeId }
+        items.map { item ->
+            WatchlistRowUi(item, PlaybackProgressUi.of(byId[item.videoYoutubeId], item.durationSeconds))
+        }
+    }
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun play(startItem: WatchlistItemEntity, mode: StreamMode) {

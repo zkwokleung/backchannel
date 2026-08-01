@@ -49,7 +49,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.draw.alpha
+import com.zkwokleung.backchannel.ui.common.EqualizerIndicator
 import com.zkwokleung.backchannel.ui.common.MediaRow
+import com.zkwokleung.backchannel.ui.common.PlaybackProgressUi
+import com.zkwokleung.backchannel.ui.player.sharedPlayerViewModel
 import com.zkwokleung.backchannel.ui.common.Thumbnail
 import com.zkwokleung.backchannel.ui.theme.Spacing
 import com.zkwokleung.backchannel.ui.common.EmptyState
@@ -65,10 +70,11 @@ fun WatchlistDetailScreen(
     onOpenVideo: () -> Unit,
 ) {
     val viewModel = appViewModel {
-        WatchlistDetailViewModel(watchlistId, it.watchlistRepository, it.queuePlayer)
+        WatchlistDetailViewModel(watchlistId, it.watchlistRepository, it.playbackRepository, it.queuePlayer)
     }
     val watchlist by viewModel.watchlist.collectAsState()
-    val items by viewModel.items.collectAsState()
+    val rows by viewModel.rows.collectAsState()
+    val playerState by sharedPlayerViewModel().uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -84,7 +90,7 @@ fun WatchlistDetailScreen(
             )
         },
     ) { padding ->
-        if (items.isEmpty()) {
+        if (rows.isEmpty()) {
             EmptyState(
                 modifier = Modifier.padding(padding),
                 icon = Icons.Filled.VideoLibrary,
@@ -96,11 +102,15 @@ fun WatchlistDetailScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(bottom = Spacing.lg),
             ) {
-                itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
+                itemsIndexed(rows, key = { _, row -> row.item.id }) { index, row ->
+                    val item = row.item
                     WatchlistItemRow(
                         item = item,
+                        progress = row.progress,
+                        isCurrent = playerState.mediaId == item.videoYoutubeId,
+                        isPlaying = playerState.isPlaying,
                         canMoveUp = index > 0,
-                        canMoveDown = index < items.lastIndex,
+                        canMoveDown = index < rows.lastIndex,
                         onPlayAudio = {
                             viewModel.play(item, StreamMode.AUDIO)
                             onOpenNowPlaying()
@@ -122,6 +132,9 @@ fun WatchlistDetailScreen(
 @Composable
 private fun WatchlistItemRow(
     item: WatchlistItemEntity,
+    progress: PlaybackProgressUi,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onPlayAudio: () -> Unit,
@@ -131,12 +144,44 @@ private fun WatchlistItemRow(
     onRemove: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val played = progress is PlaybackProgressUi.Played
 
     MediaRow(
         title = item.title,
-        subtitle = listOfNotNull(item.channelTitle, formatDuration(item.durationSeconds))
-            .joinToString(" · "),
-        leading = { Thumbnail(item.thumbnail) },
+        subtitle = listOfNotNull(
+            item.channelTitle,
+            formatDuration(item.durationSeconds),
+            "Played".takeIf { played },
+        ).joinToString(" · "),
+        titleColor = when {
+            isCurrent -> MaterialTheme.colorScheme.primary
+            played -> MaterialTheme.colorScheme.onSurfaceVariant
+            else -> MaterialTheme.colorScheme.onSurface
+        },
+        badge = if (isCurrent) {
+            { EqualizerIndicator(playing = isPlaying) }
+        } else {
+            null
+        },
+        leading = {
+            Thumbnail(
+                model = item.thumbnail,
+                modifier = Modifier.alpha(if (played) 0.45f else 1f),
+            ) {
+                if (progress is PlaybackProgressUi.InProgress) {
+                    LinearProgressIndicator(
+                        progress = { progress.fraction },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(3.dp),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        trackColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f),
+                        drawStopIndicator = {},
+                    )
+                }
+            }
+        },
         onClick = onPlayAudio,
         onClickLabel = "Listen",
         trailing = {
