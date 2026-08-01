@@ -160,12 +160,25 @@ class YtdlpEngine(
         )
     }
 
+    /** Drops a cached stream URL so the next resolve hits yt-dlp again (used on HTTP 403). */
+    fun invalidateStream(videoId: String, mode: StreamMode) {
+        streamCache.remove("$videoId:$mode")
+    }
+
     /** Resolves a direct stream URL. Cached in-memory for [STREAM_TTL_MILLIS]. */
-    suspend fun resolveStream(videoId: String, mode: StreamMode): ResolvedStream {
+    suspend fun resolveStream(
+        videoId: String,
+        mode: StreamMode,
+        forceRefresh: Boolean = false,
+    ): ResolvedStream {
         val key = "$videoId:$mode"
-        streamCache[key]?.let { cached ->
-            if (cached.expiresAtMillis > System.currentTimeMillis()) return cached
+        if (forceRefresh) {
             streamCache.remove(key)
+        } else {
+            streamCache[key]?.let { cached ->
+                if (cached.expiresAtMillis > System.currentTimeMillis()) return cached
+                streamCache.remove(key)
+            }
         }
         return withContext(dispatcher) {
             val format = when (mode) {
@@ -178,6 +191,9 @@ class YtdlpEngine(
                 addOption("--no-playlist")
                 addOption("--skip-download")
                 addOption("-f", format)
+                // The default web client hands out SABR-protected URLs that reject the range
+                // requests ExoPlayer makes when seeking; android_vr returns plain ones.
+                addOption("--extractor-args", "youtube:player_client=$PLAYER_CLIENTS")
             }
             val parsed = parse<YtVideoJson>(raw, "stream $videoId")
             val url = parsed.url
@@ -276,6 +292,7 @@ class YtdlpEngine(
     companion object {
         private const val TAG = "YtdlpEngine"
         const val DEFAULT_LIST_LIMIT = 100
+        private const val PLAYER_CLIENTS = "android_vr,web"
         private const val STREAM_TTL_MILLIS = 30L * 60 * 1000 // 30 min, well under ~6h expiry
     }
 
