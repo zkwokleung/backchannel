@@ -1,28 +1,15 @@
-# ─── Python / backend (server/) ───────────────────────────────
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-env/
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# ─── Node / app (app/) ────────────────────────────────────────
-node_modules/
-.expo/
-dist/
-web-build/
-*.tsbuildinfo
-
-# ─── Native / Expo build output ───────────────────────────────
+# ─── Android (android/) ───────────────────────────────────────
+android/.gradle/
+android/.kotlin/
+android/build/
 android/app/build/
-ios/build/
+android/local.properties
+android/captures/
 *.apk
 *.aab
 *.keystore
 *.jks
+*.hprof
 
 # ─── Runtime data / secrets ───────────────────────────────────
 *.env
@@ -30,9 +17,6 @@ ios/build/
 !.env.example
 *.sqlite
 *.sqlite3
-*.db
-cache/
-data/
 
 # ─── Editor / OS ──────────────────────────────────────────────
 .vscode/

@@ -1,0 +1,251 @@
+package com.zkwokleung.backchannel.engine
+
+import android.content.Context
+import android.util.Log
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * On-device yt-dlp. All calls are suspend functions on [dispatcher]; results are parsed
+ * with kotlinx.serialization. Stream URLs are cached in memory with a short TTL and are
+ * never persisted (they expire upstream after ~6h and are device-bound).
+ */
+class YtdlpEngine(
+    private val appContext: Context,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
+    sealed interface InitState {
+        data object NotStarted : InitState
+        data object Initializing : InitState
+        data class Ready(val ytdlpVersion: String?) : InitState
+        data class Failed(val message: String) : InitState
+    }
+
+    private val _initState = MutableStateFlow<InitState>(InitState.NotStarted)
+    val initState: StateFlow<InitState> = _initState.asStateFlow()
+
+    private val initMutex = Mutex()
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val streamCache = ConcurrentHashMap<String, ResolvedStream>()
+
+    /** Idempotent; safe to call from multiple places. */
+    suspend fun initialize(): InitState = initMutex.withLock {
+        val current = _initState.value
+        if (current is InitState.Ready) return current
+        _initState.value = InitState.Initializing
+        return withContext(dispatcher) {
+            try {
+                YoutubeDL.getInstance().init(appContext)
+                val ready = InitState.Ready(currentVersion())
+                _initState.value = ready
+                Log.i(TAG, "yt-dlp ready, version=${ready.ytdlpVersion}")
+                ready
+            } catch (t: Throwable) {
+                val failed = InitState.Failed(t.message ?: "yt-dlp init failed")
+                _initState.value = failed
+                Log.e(TAG, "yt-dlp init failed", t)
+                failed
+            }
+        }
+    }
+
+    fun currentVersion(): String? = try {
+        YoutubeDL.getInstance().version(appContext)
+    } catch (t: Throwable) {
+        null
+    }
+
+    /** Updates the bundled yt-dlp binary (stable channel). Returns the new version. */
+    suspend fun update(): String? = withContext(dispatcher) {
+        requireReady()
+        try {
+            YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
+        } catch (t: Throwable) {
+            throw EngineException("yt-dlp update failed: ${t.message}", t)
+        }
+        val version = currentVersion()
+        _initState.value = InitState.Ready(version)
+        version
+    }
+
+    // ── Extraction ────────────────────────────────────────────────────────────
+
+    suspend fun resolveChannel(handleOrUrl: String): ChannelMeta = withContext(dispatcher) {
+        val url = normalizeChannelUrl(handleOrUrl) + "/videos"
+        val parsed = runFlatPlaylist(url, playlistEnd = 1)
+        val channelId = parsed.channelId
+            ?: throw EngineException("Could not resolve channel: $handleOrUrl")
+        ChannelMeta(
+            youtubeId = channelId,
+            handle = parsed.uploaderId,
+            title = parsed.channel ?: parsed.title ?: handleOrUrl,
+            thumbnail = pickAvatar(parsed.thumbnails),
+        )
+    }
+
+    suspend fun listChannelVideos(
+        channelYoutubeId: String,
+        limit: Int = DEFAULT_LIST_LIMIT,
+    ): List<VideoMeta> = withContext(dispatcher) {
+        val url = "https://www.youtube.com/channel/$channelYoutubeId/videos"
+        val parsed = runFlatPlaylist(url, playlistEnd = limit)
+        parsed.entries.mapNotNull { entry ->
+            val id = entry.id ?: return@mapNotNull null
+            VideoMeta(
+                youtubeId = id,
+                title = entry.title ?: id,
+                durationSeconds = entry.duration?.toLong(),
+                thumbnail = entry.thumbnails.lastOrNull()?.url
+                    ?: "https://i.ytimg.com/vi/$id/hqdefault.jpg",
+                publishedAt = parseUploadDate(entry.uploadDate),
+            )
+        }
+    }
+
+    suspend fun getVideoInfo(videoId: String): VideoDetails = withContext(dispatcher) {
+        val raw = execute(watchUrl(videoId)) {
+            addOption("--dump-single-json")
+            addOption("--no-playlist")
+            addOption("--skip-download")
+        }
+        val parsed = parse<YtVideoJson>(raw, "video $videoId")
+        VideoDetails(
+            youtubeId = parsed.id,
+            title = parsed.title ?: parsed.id,
+            description = parsed.description,
+            durationSeconds = parsed.duration?.toLong(),
+            thumbnail = parsed.thumbnail,
+            publishedAt = parseUploadDate(parsed.uploadDate),
+            channelYoutubeId = parsed.channelId,
+            channelTitle = parsed.channel,
+            viewCount = parsed.viewCount,
+        )
+    }
+
+    /** Resolves a direct stream URL. Cached in-memory for [STREAM_TTL_MILLIS]. */
+    suspend fun resolveStream(videoId: String, mode: StreamMode): ResolvedStream {
+        val key = "$videoId:$mode"
+        streamCache[key]?.let { cached ->
+            if (cached.expiresAtMillis > System.currentTimeMillis()) return cached
+            streamCache.remove(key)
+        }
+        return withContext(dispatcher) {
+            val format = when (mode) {
+                StreamMode.AUDIO -> "bestaudio[ext=m4a]/bestaudio"
+                StreamMode.VIDEO ->
+                    "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]"
+            }
+            val raw = execute(watchUrl(videoId)) {
+                addOption("--dump-single-json")
+                addOption("--no-playlist")
+                addOption("--skip-download")
+                addOption("-f", format)
+            }
+            val parsed = parse<YtVideoJson>(raw, "stream $videoId")
+            val url = parsed.url
+                ?: throw EngineException("yt-dlp returned no direct URL for $videoId ($mode)")
+            val stream = ResolvedStream(
+                videoId = videoId,
+                mode = mode,
+                url = url,
+                httpHeaders = parsed.httpHeaders,
+                mimeType = when (mode) {
+                    StreamMode.AUDIO -> if (parsed.ext == "m4a") "audio/mp4" else null
+                    StreamMode.VIDEO -> if (parsed.ext == "mp4") "video/mp4" else null
+                },
+                expiresAtMillis = System.currentTimeMillis() + STREAM_TTL_MILLIS,
+            )
+            streamCache[key] = stream
+            stream
+        }
+    }
+
+    // ── Internals ────────────────────────────────────────────────────────────
+
+    private suspend fun runFlatPlaylist(url: String, playlistEnd: Int): YtPlaylistJson {
+        val raw = execute(url) {
+            addOption("--dump-single-json")
+            addOption("--flat-playlist")
+            addOption("--playlist-end", playlistEnd)
+            addOption("--skip-download")
+        }
+        return parse(raw, "playlist $url")
+    }
+
+    private suspend fun execute(url: String, configure: YoutubeDLRequest.() -> Unit): String {
+        requireReady()
+        val request = YoutubeDLRequest(url).apply {
+            addOption("--no-warnings")
+            addOption("--ignore-config")
+            configure()
+        }
+        return try {
+            YoutubeDL.getInstance().execute(request).out
+        } catch (t: Throwable) {
+            throw EngineException("yt-dlp failed for $url: ${t.message}", t)
+        }
+    }
+
+    private inline fun <reified T> parse(raw: String, what: String): T = try {
+        json.decodeFromString<T>(raw.trim())
+    } catch (t: Throwable) {
+        throw EngineException("Could not parse yt-dlp output for $what", t)
+    }
+
+    private suspend fun requireReady() {
+        if (_initState.value !is InitState.Ready) {
+            val state = initialize()
+            if (state !is InitState.Ready) {
+                throw EngineException("yt-dlp engine is not available: $state")
+            }
+        }
+    }
+
+    private fun watchUrl(videoId: String) = "https://www.youtube.com/watch?v=$videoId"
+
+    private fun pickAvatar(thumbnails: List<YtThumbnail>): String? =
+        thumbnails.firstOrNull { it.id?.contains("avatar") == true }?.url
+            ?: thumbnails.lastOrNull()?.url
+
+    private fun parseUploadDate(uploadDate: String?): Long? {
+        if (uploadDate.isNullOrBlank()) return null
+        return try {
+            LocalDate.parse(uploadDate, DateTimeFormatter.BASIC_ISO_DATE)
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    companion object {
+        private const val TAG = "YtdlpEngine"
+        const val DEFAULT_LIST_LIMIT = 100
+        private const val STREAM_TTL_MILLIS = 30L * 60 * 1000 // 30 min, well under ~6h expiry
+    }
+
+    /** Normalizes @handle, bare handle, UC… id, or full URL to a canonical channel URL. */
+    internal fun normalizeChannelUrl(input: String): String {
+        val value = input.trim()
+        return when {
+            value.startsWith("http://") || value.startsWith("https://") ->
+                value.substringBefore('?').trimEnd('/')
+            value.startsWith("UC") && value.length == 24 ->
+                "https://www.youtube.com/channel/$value"
+            value.startsWith("@") -> "https://www.youtube.com/$value"
+            else -> "https://www.youtube.com/@$value"
+        }
+    }
+}
