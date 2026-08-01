@@ -11,6 +11,7 @@ import androidx.media3.datasource.TransferListener
 import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.engine.YtdlpEngine
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 
 /**
  * Turns `backchannel://stream?v=…&mode=…` URIs into real googlevideo URLs at open time.
@@ -20,6 +21,12 @@ import kotlinx.coroutines.runBlocking
  * URL. A rejected URL (403 — expired or revoked mid-playback) is re-resolved once, bypassing the
  * cache, before the failure is surfaced to the player.
  */
+/**
+ * An extraction failure, carrying text meant for a person. It is an [IOException] so ExoPlayer
+ * applies its retry policy instead of treating it as a fatal unexpected error.
+ */
+class StreamResolutionException(message: String, cause: Throwable?) : IOException(message, cause)
+
 @UnstableApi
 class ResolvingStreamDataSourceFactory(
     private val upstreamFactory: DataSource.Factory,
@@ -50,7 +57,17 @@ private class ResolvingStreamDataSource(
     }
 
     private fun resolve(dataSpec: DataSpec, request: StreamRequest, forceRefresh: Boolean): DataSpec {
-        val stream = runBlocking { engine.resolveStream(request.videoId, request.mode, forceRefresh) }
+        // Extraction failures must surface as IOException: ExoPlayer's Loader only applies its
+        // retry/backoff policy to IOException, and treats anything else as a fatal unexpected
+        // error whose message replaces ours. Wrapping keeps both the retries and the readable
+        // text from EngineErrors.
+        val stream = try {
+            runBlocking { engine.resolveStream(request.videoId, request.mode, forceRefresh) }
+        } catch (e: StreamResolutionException) {
+            throw e
+        } catch (e: Exception) {
+            throw StreamResolutionException(e.message ?: "Could not resolve this stream.", e)
+        }
         return dataSpec.buildUpon()
             .setUri(stream.url.toUri())
             .setHttpRequestHeaders(stream.httpHeaders)

@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,7 +36,8 @@ fun VideoPlayerScreen(onBack: () -> Unit) {
     val viewModel = appViewModel { PlayerViewModel(it.playerConnection, it.queuePlayer) }
     val controller by viewModel.controller.collectAsState()
     val state by viewModel.uiState.collectAsState()
-    val activity = LocalContext.current as? Activity
+    val context = LocalContext.current
+    val activity = context as? Activity
     val inPip by PipCoordinator.inPip.collectAsState()
 
     DisposableEffect(Unit) {
@@ -43,20 +45,32 @@ fun VideoPlayerScreen(onBack: () -> Unit) {
         onDispose { PipCoordinator.videoScreenVisible = false }
     }
 
+    // The view is remembered (rather than created inside AndroidView) so teardown is tied to
+    // this composition leaving, not to AndroidView's release timing.
+    val playerView = remember {
+        PlayerView(context).apply {
+            useController = true
+            setShowNextButton(true)
+            setShowPreviousButton(true)
+        }
+    }
+
+    // Attaching is what registers the view as a listener on — and as a video surface for — the
+    // process-lifetime MediaController. Both have to be handed back when the screen goes away,
+    // or every visit strands a PlayerView and the Activity behind it.
+    DisposableEffect(playerView, controller) {
+        playerView.player = controller
+        onDispose {
+            controller?.clearVideoSurface()
+            playerView.player = null
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        controller?.let { player ->
+        if (controller != null) {
             AndroidView(
-                factory = { context ->
-                    PlayerView(context).apply {
-                        useController = true
-                        setShowNextButton(true)
-                        setShowPreviousButton(true)
-                    }
-                },
-                update = { view ->
-                    view.player = player
-                    view.useController = !inPip
-                },
+                factory = { playerView },
+                update = { view -> view.useController = !inPip },
                 modifier = Modifier.fillMaxSize(),
             )
         }

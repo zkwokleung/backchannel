@@ -79,9 +79,7 @@ class PlayerViewModel(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                _uiState.value = _uiState.value.copy(
-                    error = error.message ?: "Playback failed",
-                )
+                _uiState.value = _uiState.value.copy(error = readablePlaybackError(error))
             }
         }
         controller.addListener(newListener)

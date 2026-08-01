@@ -26,6 +26,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // Hand the service binding back when the UI is really going away (not on a rotation),
+        // so a paused session can stop instead of lingering as a foreground service.
+        if (isFinishing) {
+            appContainer.playerConnection.disconnect()
+        }
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         // Home-press while watching video → keep playing in a PiP window.
