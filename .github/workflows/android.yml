@@ -29,6 +29,17 @@ jobs:
       - name: Assemble debug APKs
         run: ./gradlew assembleDebug --no-daemon
 
+      # The release variant is the one that runs R8, resource shrinking and the native-payload
+      # packaging rules — none of which the debug build exercises. It has broken this app before
+      # (missing Jackson keep rules) and was only caught by hand. No signing config is present in
+      # CI, so this produces unsigned APKs; it is a build check, not a distributable.
+      #
+      # Caveat worth knowing: this catches shrinker *build* failures, not runtime ones. A missing
+      # keep rule that only blows up on launch still needs a device, so keep smoke-testing a
+      # signed release before publishing a tag.
+      - name: Assemble release APKs (R8 check)
+        run: ./gradlew assembleRelease --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
           name: debug-apks

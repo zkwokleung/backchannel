@@ -22,8 +22,8 @@ fun signingSetting(propertyKey: String, envKey: String): String? =
 val releaseStoreFile = signingSetting("storeFile", "BACKCHANNEL_KEYSTORE")
 
 // CI tags drive the version; local builds fall back to the values checked in here.
-val buildVersionName = System.getenv("BACKCHANNEL_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
-val buildVersionCode = System.getenv("BACKCHANNEL_VERSION_CODE")?.toIntOrNull() ?: 1
+val buildVersionName = System.getenv("BACKCHANNEL_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.2.0"
+val buildVersionCode = System.getenv("BACKCHANNEL_VERSION_CODE")?.toIntOrNull() ?: 2
 
 android {
     namespace = "com.zkwokleung.backchannel"
