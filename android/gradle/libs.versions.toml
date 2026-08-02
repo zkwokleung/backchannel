@@ -10,6 +10,9 @@ navigationCompose = "2.8.9"
 room = "2.7.1"
 media3 = "1.5.1"
 coil = "2.7.0"
+# Already in the APK as a Coil transitive; pinned here so the updater doesn't break the day
+# Coil moves it behind coil-network-okhttp.
+okhttp = "4.12.0"
 coroutines = "1.10.1"
 serializationJson = "1.8.0"
 youtubedlAndroid = "0.17.4"
@@ -38,6 +41,7 @@ androidx-media3-session = { group = "androidx.media3", name = "media3-session", 
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 androidx-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
