@@ -169,6 +169,39 @@ class ParseChecksumsTest {
     }
 }
 
+class DownloadProgressTest {
+
+    @Test
+    fun `progress spans zero to a hundred`() {
+        assertEquals(0, percentOf(0, 100))
+        assertEquals(42, percentOf(42, 100))
+        assertEquals(100, percentOf(100, 100))
+    }
+
+    @Test
+    fun `an unknown total reports zero rather than dividing by it`() {
+        // contentLength() is -1 once github.com redirects to its asset host.
+        assertEquals(0, percentOf(5_000, -1))
+        assertEquals(0, percentOf(5_000, 0))
+    }
+
+    @Test
+    fun `a body longer than advertised still clamps to a hundred`() {
+        assertEquals(100, percentOf(120, 100))
+    }
+
+    @Test
+    fun `large sizes do not overflow`() {
+        // 18 MB * 100 comfortably exceeds Int range; the arithmetic has to stay in Long.
+        assertEquals(50, percentOf(9_000_000, 18_000_000))
+    }
+
+    @Test
+    fun `hex encoding is lowercase and zero-padded`() {
+        assertEquals("000fff", byteArrayOf(0x00, 0x0f, 0xff.toByte()).toHexString())
+    }
+}
+
 /**
  * Guards the contract between `.github/workflows/release.yml` and the updater.
  *

@@ -34,10 +34,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
@@ -45,14 +48,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.zkwokleung.backchannel.BuildConfig
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.zkwokleung.backchannel.R
 import com.zkwokleung.backchannel.engine.YtdlpEngine
 import com.zkwokleung.backchannel.ui.common.appViewModel
 import com.zkwokleung.backchannel.ui.theme.Spacing
+import com.zkwokleung.backchannel.update.AppUpdater
+import com.zkwokleung.backchannel.update.AvailableUpdate
 
 /**
- * Three controls and a footer.
+ * Four controls and a footer.
  *
  * Deliberately has no section headers: with one row per domain they label rather than group, and
  * leading icons carry the same information in less space. Add headers back when a section holds
@@ -64,17 +71,51 @@ import com.zkwokleung.backchannel.ui.theme.Spacing
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
-    val viewModel = appViewModel { SettingsViewModel(it.engine) }
+    val viewModel = appViewModel { SettingsViewModel(it.engine, it.appUpdater) }
     val initState by viewModel.initState.collectAsState()
-    val updateState by viewModel.updateState.collectAsState()
+    val engineUpdate by viewModel.engineUpdate.collectAsState()
+    val appUpdate by viewModel.appUpdate.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var pendingUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
 
-    LaunchedEffect(updateState.message) {
-        updateState.message?.let {
+    LaunchedEffect(engineUpdate.message) {
+        engineUpdate.message?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.consumeMessage()
         }
+    }
+
+    // The system's confirmation screen is launched from here, not from UpdateInstallReceiver: a
+    // startActivity from a background receiver is silently dropped on Android 10+. By the time
+    // this effect runs, the screen is on-screen by definition.
+    LaunchedEffect(appUpdate) {
+        (appUpdate as? AppUpdater.State.AwaitingConfirmation)?.let { awaiting ->
+            context.openSafely(awaiting.intent)
+            viewModel.onConfirmationLaunched()
+        }
+    }
+
+    // ACTION_MANAGE_UNKNOWN_APP_SOURCES returns no result, so resuming is the only reliable
+    // signal that the toggle may have changed.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshInstallPermission()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    pendingUpdate?.let { update ->
+        UpdateDialog(
+            update = update,
+            onConfirm = {
+                pendingUpdate = null
+                viewModel.downloadAppUpdate()
+            },
+            onDismiss = { pendingUpdate = null },
+        )
     }
 
     Scaffold(
@@ -87,9 +128,41 @@ fun SettingsScreen() {
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
+            AppUpdateRow(
+                version = viewModel.appVersion,
+                state = appUpdate,
+                onCheck = viewModel::checkForAppUpdate,
+                onUpdate = {
+                    val offered = (appUpdate as? AppUpdater.State.Available)?.update
+                    // A version remembered from a previous launch has no asset details yet;
+                    // there is nothing to put in the dialog until they are re-fetched.
+                    if (offered != null && offered.downloadUrl.isNotEmpty()) {
+                        pendingUpdate = offered
+                    } else {
+                        viewModel.checkForAppUpdate()
+                    }
+                },
+                onCancel = viewModel::cancelAppUpdate,
+                onInstall = viewModel::installAppUpdate,
+                onAllowInstalls = {
+                    // A few ROMs ship no unknown-sources screen; the app's own settings page is
+                    // at least somewhere the toggle might live.
+                    if (!context.openSafely(viewModel.unknownSourcesIntent())) {
+                        context.openSafely(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", context.packageName, null),
+                            )
+                        )
+                    }
+                },
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
             EngineRow(
                 initState = initState,
-                updating = updateState.inProgress,
+                updating = engineUpdate.inProgress,
                 onUpdate = viewModel::updateYtdlp,
                 onRetry = viewModel::retryInit,
             )
@@ -201,7 +274,12 @@ private fun LinkRow(
     )
 }
 
-/** Ends the screen with the app's own mark instead of a paragraph about it. */
+/**
+ * Ends the screen with the app's own mark instead of a paragraph about it.
+ *
+ * No version number: the update row above carries it, and printing it twice on a screen this
+ * deliberately short reads as an oversight.
+ */
 @Composable
 private fun AppFooter() {
     Column(
@@ -219,7 +297,7 @@ private fun AppFooter() {
         )
         Spacer(Modifier.height(Spacing.sm))
         Text(
-            "Backchannel ${BuildConfig.VERSION_NAME}",
+            "Backchannel",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -228,6 +306,6 @@ private fun AppFooter() {
 
 private const val SOURCE_URL = "https://github.com/zkwokleung/backchannel"
 
-private fun android.content.Context.openSafely(intent: Intent) {
-    runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-}
+/** Returns false when nothing on the device can handle the intent, which some ROMs manage. */
+private fun android.content.Context.openSafely(intent: Intent): Boolean =
+    runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess

@@ -70,7 +70,9 @@ class AppUpdater(
          */
         data class AwaitingConfirmation(val update: AvailableUpdate, val intent: Intent) : State
         data object Installing : State
-        data class Failed(val failure: UpdateFailure) : State
+
+        /** Carries the offer it failed on, so Retry has something to resume. */
+        data class Failed(val failure: UpdateFailure, val update: AvailableUpdate? = null) : State
     }
 
     private val downloadDir = File(appContext.cacheDir, DOWNLOAD_DIR)
@@ -189,7 +191,7 @@ class AppUpdater(
                     _state.value = State.ReadyToInstall(update, apk)
                 } else {
                     clearDownloads()
-                    _state.value = State.Failed(rejection)
+                    _state.value = State.Failed(rejection, update)
                 }
             } catch (t: Throwable) {
                 withContext(NonCancellable) { clearDownloads() }
@@ -197,8 +199,9 @@ class AppUpdater(
                     // The user cancelled; put the offer back rather than showing an error.
                     State.Available(update)
                 } else {
-                    failureFor(t).also { Log.w(TAG, "update download failed: $it", t) }
-                        .let(State::Failed)
+                    val failure = failureFor(t)
+                    Log.w(TAG, "update download failed: $failure", t)
+                    State.Failed(failure, update)
                 }
                 if (t is CancellationException) throw t
             }
@@ -207,11 +210,6 @@ class AppUpdater(
 
     fun cancel() {
         job?.cancel()
-    }
-
-    /** Puts the row back to something the user can act on after a failure. */
-    fun dismissFailure() {
-        if (_state.value is State.Failed) _state.value = State.Idle
     }
 
     private suspend fun fetchApk(update: AvailableUpdate): File = withContext(dispatcher) {
@@ -291,16 +289,33 @@ class AppUpdater(
     fun install() {
         val ready = _state.value as? State.ReadyToInstall ?: return
         if (!installer.canInstall()) {
-            _state.value = State.Failed(UpdateFailure.InstallNotPermitted)
+            _state.value = State.Failed(UpdateFailure.InstallNotPermitted, ready.update)
             return
         }
         scope.launch {
             _state.value = State.Installing
             runCatching { installer.install(ready.apk) }.onFailure { t ->
                 Log.w(TAG, "commit failed", t)
-                _state.value = State.Failed(failureFor(t))
+                _state.value = State.Failed(failureFor(t), ready.update)
             }
         }
+    }
+
+    /** The system screen for Backchannel's "install unknown apps" toggle. */
+    fun unknownSourcesIntent(): Intent = installer.unknownSourcesIntent()
+
+    /**
+     * Re-reads the "install unknown apps" toggle and re-arms Install if it is now on.
+     *
+     * That settings screen returns no result — its documented output is "Nothing" — so this is
+     * driven from the Settings screen's ON_RESUME rather than an activity result.
+     */
+    fun refreshInstallPermission() {
+        val failed = _state.value as? State.Failed ?: return
+        if (failed.failure != UpdateFailure.InstallNotPermitted) return
+        val update = failed.update ?: return
+        if (!installer.canInstall()) return
+        readyFileFor(update)?.let { _state.value = State.ReadyToInstall(update, it) }
     }
 
     /** Called by [UpdateInstallReceiver] when the system needs the user to confirm. */
@@ -334,7 +349,7 @@ class AppUpdater(
         } else {
             null
         }
-        _state.value = readyAgain ?: State.Failed(failure)
+        _state.value = readyAgain ?: State.Failed(failure, pending)
     }
 
     private fun readyFileFor(update: AvailableUpdate): File? =
@@ -390,6 +405,7 @@ class AppUpdater(
             is State.Verifying -> update
             is State.ReadyToInstall -> update
             is State.AwaitingConfirmation -> update
+            is State.Failed -> update
             else -> null
         }
 

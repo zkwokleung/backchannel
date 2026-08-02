@@ -66,3 +66,10 @@ fun formatDuration(seconds: Long?): String {
 }
 
 fun formatMillis(millis: Long): String = formatDuration(millis / 1000)
+
+/** Download sizes, in the MB most people think in. Returns null when the size is unknown. */
+fun formatBytes(bytes: Long): String? = when {
+    bytes <= 0 -> null
+    bytes < 1024 * 1024 -> String.format(Locale.US, "%d KB", bytes / 1024)
+    else -> String.format(Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+}
