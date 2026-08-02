@@ -51,6 +51,23 @@ Always smoke-test `assembleRelease` on a device, not just `assembleDebug`.
 for anything that jumps between tabs, or the destination nests inside the wrong stack and
 saved-state restore bounces the user back to it.
 
+**Release asset names are an API.** The in-app updater (`update/`) finds its download by parsing
+the filenames `release.yml` stages:
+
+| | |
+|---|---|
+| APKs | `backchannel-<version>-<abi>.apk` — `arm64-v8a`, `x86_64`, `universal` |
+| Checksums | `SHA256SUMS.txt`, lines of `<sha256>  <filename>` |
+| Version source | the tag minus `v`, compared as semver — **not** `versionCode`, which is the CI run number and means nothing outside CI |
+
+Rename any of these in the workflow and `ReleasePayloadContractTest` fails, which is the point.
+Changing them for real means shipping the updater change first, since older installs parse the
+old names.
+
+**The updater stays enabled in debug builds.** A debug install can never be replaced by a
+release-signed APK, but hiding the feature would mean the whole path is only ever exercised in
+production. `ApkInstaller.verify()` catches it at the last gate and says so specifically.
+
 ## Release build
 
 Signing settings come from `android/keystore.properties` (gitignored) or, failing that, from

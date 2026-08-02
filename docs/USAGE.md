@@ -24,6 +24,25 @@ adb install app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 
 Requires JDK 17 and the Android SDK (compileSdk 35). No other setup.
 
+## Updating the app
+
+Settings → **Backchannel** shows the installed version. Tap **Check** to ask GitHub for a newer
+release; the app also checks quietly once a day and marks the row when one appears. Nothing is
+downloaded until you tap **Update** and confirm — the dialog shows the version, the download size
+and the release notes first.
+
+The download is checksummed against the release's `SHA256SUMS.txt` and its signing key is
+compared against the installed app's before Android's installer is shown, so a corrupted or
+wrongly-signed download is refused with a reason rather than a system error. Android will ask you
+to allow Backchannel to install apps the first time.
+
+**Installing restarts the app and stops playback.** Nothing is lost — positions are saved
+continuously — but finish what you are listening to first.
+
+Two things worth knowing: a build installed from `assembleDebug` cannot be updated this way (the
+keys differ; uninstall it and install a release APK), and manual download from the Releases page
+still works exactly as before.
+
 ## First launch
 
 On first use the app updates its embedded yt-dlp before the first extraction. This takes a few
@@ -54,6 +73,7 @@ finished and starts over.
 
 ## Settings
 
+- **Backchannel version and update** — see "Updating the app" above.
 - **yt-dlp version and update** — extraction breaks when YouTube changes things. Tap **Update**
   to fetch the newest yt-dlp without reinstalling the app. Try this first if anything stops
   working.
