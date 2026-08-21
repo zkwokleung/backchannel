@@ -167,7 +167,7 @@ class YtdlpEngine(
 
     /** Drops a cached stream URL so the next resolve hits yt-dlp again (used on HTTP 403). */
     fun invalidateStream(videoId: String, mode: StreamMode) {
-        streamCache.remove("$videoId:$mode")
+        streamCache.remove(cacheKey(videoId, mode))
     }
 
     /** Resolves a direct stream URL. Cached in-memory for [STREAM_TTL_MILLIS]. */
@@ -176,7 +176,7 @@ class YtdlpEngine(
         mode: StreamMode,
         forceRefresh: Boolean = false,
     ): ResolvedStream {
-        val key = "$videoId:$mode"
+        val key = cacheKey(videoId, mode)
         if (forceRefresh) {
             streamCache.remove(key)
         } else {
@@ -187,37 +187,72 @@ class YtdlpEngine(
         }
         return withContext(dispatcher) {
             val format = when (mode) {
-                StreamMode.AUDIO -> "bestaudio[ext=m4a]/bestaudio"
-                StreamMode.VIDEO ->
-                    "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]"
+                StreamMode.AUDIO -> AUDIO_FORMAT
+                StreamMode.VIDEO -> VIDEO_FORMAT
             }
+            // No player_client pin: which YouTube clients hand out working URLs shifts under
+            // yt-dlp's feet (android_vr, once the reliable choice, now returns only a dead
+            // muxed format), and its maintainers keep the default set current. Pinning is how
+            // this app breaks while up to date.
             val raw = execute(watchUrl(videoId), allowFirstRunUpdate = false) {
                 addOption("--dump-single-json")
                 addOption("--no-playlist")
                 addOption("--skip-download")
                 addOption("-f", format)
-                // The default web client hands out SABR-protected URLs that reject the range
-                // requests ExoPlayer makes when seeking; android_vr returns plain ones.
-                addOption("--extractor-args", "youtube:player_client=$PLAYER_CLIENTS")
             }
             val parsed = parse<YtVideoJson>(raw, "stream $videoId")
-            val url = parsed.url
-                ?: throw EngineException("No playable stream for that video.")
-            val stream = ResolvedStream(
-                videoId = videoId,
-                mode = mode,
-                url = url,
-                httpHeaders = parsed.httpHeaders,
-                mimeType = when (mode) {
-                    StreamMode.AUDIO -> if (parsed.ext == "m4a") "audio/mp4" else null
-                    StreamMode.VIDEO -> if (parsed.ext == "mp4") "video/mp4" else null
-                },
-                expiresAtMillis = System.currentTimeMillis() + STREAM_TTL_MILLIS,
-            )
+            val stream = when (mode) {
+                StreamMode.AUDIO -> audioStream(videoId, parsed)
+                StreamMode.VIDEO -> videoStream(videoId, parsed)
+            }
             streamCache[key] = stream
             stream
         }
     }
+
+    private fun audioStream(videoId: String, parsed: YtVideoJson): ResolvedStream {
+        val url = parsed.url ?: throw EngineException("No playable stream for that video.")
+        return ResolvedStream(
+            videoId = videoId,
+            mode = StreamMode.AUDIO,
+            url = url,
+            httpHeaders = parsed.httpHeaders,
+            mimeType = if (parsed.ext == "m4a") "audio/mp4" else null,
+            expiresAtMillis = System.currentTimeMillis() + STREAM_TTL_MILLIS,
+        )
+    }
+
+    /**
+     * A `video+audio` selection puts its two tracks in `requested_formats`. The audio track is
+     * cached under [StreamMode.AUDIO] as well, so the audio leg of a merged video item resolves
+     * without a second yt-dlp run.
+     */
+    private fun videoStream(videoId: String, parsed: YtVideoJson): ResolvedStream {
+        val expiresAtMillis = System.currentTimeMillis() + STREAM_TTL_MILLIS
+        val video = parsed.requestedFormats.firstOrNull { it.url != null && it.hasVideo }
+            ?: throw EngineException("No playable video stream for that video.")
+        parsed.requestedFormats.firstOrNull { it.url != null && it.hasAudio && !it.hasVideo }
+            ?.let { audio ->
+                streamCache[cacheKey(videoId, StreamMode.AUDIO)] = ResolvedStream(
+                    videoId = videoId,
+                    mode = StreamMode.AUDIO,
+                    url = audio.url!!,
+                    httpHeaders = audio.httpHeaders,
+                    mimeType = if (audio.ext == "m4a") "audio/mp4" else null,
+                    expiresAtMillis = expiresAtMillis,
+                )
+            }
+        return ResolvedStream(
+            videoId = videoId,
+            mode = StreamMode.VIDEO,
+            url = video.url!!,
+            httpHeaders = video.httpHeaders,
+            mimeType = if (video.ext == "mp4") "video/mp4" else null,
+            expiresAtMillis = expiresAtMillis,
+        )
+    }
+
+    private fun cacheKey(videoId: String, mode: StreamMode) = "$videoId:$mode"
 
     // ── Internals ────────────────────────────────────────────────────────────
 
@@ -305,7 +340,16 @@ class YtdlpEngine(
     companion object {
         private const val TAG = "YtdlpEngine"
         const val DEFAULT_LIST_LIMIT = 100
-        private const val PLAYER_CLIENTS = "android_vr,web"
+
+        private const val AUDIO_FORMAT = "bestaudio[ext=m4a]/bestaudio"
+
+        // YouTube no longer serves its combined audio+video files — their URLs still resolve
+        // but every download returns 403 — so video is fetched as two adaptive tracks that the
+        // player merges (see StreamMediaSourceFactory). AVC + m4a keep hardware decoding
+        // available on older devices; 1080p caps bitrate at what a phone screen benefits from.
+        private const val VIDEO_FORMAT =
+            "bestvideo[ext=mp4][vcodec^=avc][height<=1080]+bestaudio[ext=m4a]/" +
+                "bestvideo[ext=mp4][height<=1080]+bestaudio/bestvideo+bestaudio"
 
         private const val STREAM_TTL_MILLIS = 30L * 60 * 1000 // 30 min, well under ~6h expiry
     }

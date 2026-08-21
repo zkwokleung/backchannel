@@ -44,7 +44,21 @@ internal data class YtVideoJson(
     val url: String? = null,
     val ext: String? = null,
     @SerialName("http_headers") val httpHeaders: Map<String, String> = emptyMap(),
+    @SerialName("requested_formats") val requestedFormats: List<YtRequestedFormat> = emptyList(),
 )
+
+/** One track of a `video+audio` format selection, from yt-dlp's `requested_formats`. */
+@Serializable
+internal data class YtRequestedFormat(
+    val url: String? = null,
+    val ext: String? = null,
+    val vcodec: String? = null,
+    val acodec: String? = null,
+    @SerialName("http_headers") val httpHeaders: Map<String, String> = emptyMap(),
+) {
+    val hasVideo: Boolean get() = vcodec != null && vcodec != "none"
+    val hasAudio: Boolean get() = acodec != null && acodec != "none"
+}
 
 // ── Engine result types ───────────────────────────────────────────────────────
 
