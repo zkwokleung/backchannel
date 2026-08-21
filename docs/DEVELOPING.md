@@ -38,9 +38,26 @@ a real googlevideo URL when ExoPlayer opens the source. URLs expire (~6h) and ar
 device that resolved them, so they are cached in memory only and never persisted. A 403/410 is
 retried once with a forced re-resolve.
 
-**Player client matters.** Stream resolution pins `player_client=android_vr,web`. The default web
-client returns SABR-protected URLs that answer the initial request but reject the range requests
-ExoPlayer issues when seeking — playback starts, then dies on the first seek or resume.
+**Don't pin a player client.** Stream resolution deliberately passes no
+`youtube:player_client` extractor arg. Which clients hand out working URLs changes under
+yt-dlp's feet: `android_vr,web` was once pinned here to dodge the web client's SABR-protected
+URLs (they reject the range requests ExoPlayer issues when seeking), but android_vr later
+degraded to serving only a single dead muxed format, which silently broke all playback on an
+otherwise up-to-date app. yt-dlp's maintainers keep the default client set current with
+YouTube — trusting it is what makes the extraction self-healing.
+
+**Video is two streams.** YouTube no longer serves its combined audio+video files: their URLs
+still resolve, but every download answers 403, no matter the client or headers. Video items are
+therefore resolved as `bestvideo+bestaudio` and `StreamMediaSourceFactory` merges the two
+progressive tracks inside ExoPlayer. The audio track from that one extraction is cached under
+the AUDIO mode too, so the merged item's audio leg doesn't cost a second yt-dlp run.
+
+**Never stream a googlevideo file open-ended.** An unbounded range request (`bytes=X-`) is
+throttled server-side to a few KB/s — below even audio bitrate, so playback stalls after the
+initial burst. Bounded chunks are served at full speed, which is why
+`ResolvingStreamDataSource` reads through chained ~10 MiB range requests (yt-dlp's
+`http_chunk_size` exists for the same reason). A side benefit: a URL that expires mid-playback
+is caught and re-resolved at the next chunk boundary.
 
 **Release builds need the ProGuard rules.** youtubedl-android parses with Jackson reflectively;
 without the keep rules in `proguard-rules.pro`, R8 produces `class … is not a concrete class` at
