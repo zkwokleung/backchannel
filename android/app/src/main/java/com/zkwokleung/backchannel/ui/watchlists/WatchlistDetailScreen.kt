@@ -158,6 +158,7 @@ private fun WatchlistItemRow(
             played -> MaterialTheme.colorScheme.onSurfaceVariant
             else -> MaterialTheme.colorScheme.onSurface
         },
+        highlighted = isCurrent,
         badge = if (isCurrent) {
             { EqualizerIndicator(playing = isPlaying) }
         } else {
