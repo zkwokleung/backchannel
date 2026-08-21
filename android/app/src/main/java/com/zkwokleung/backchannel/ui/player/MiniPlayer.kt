@@ -14,7 +14,7 @@ import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -31,11 +31,12 @@ import com.zkwokleung.backchannel.ui.common.Thumbnail
 import com.zkwokleung.backchannel.ui.theme.Spacing
 
 /**
- * Playback controls docked above the bottom navigation.
+ * Playback controls floating above the tab bar as a card.
  *
  * Without it, pausing meant navigating to the Playing tab first. It lives in the outer Scaffold's
  * `bottomBar`, so the Scaffold measures it and every screen's content padding grows to match — no
- * per-screen plumbing, and floating action buttons stay clear of it automatically.
+ * per-screen plumbing, and floating action buttons stay clear of it automatically. The caller
+ * owns the outer margins; this card only fills the width it is given.
  */
 @Composable
 fun MiniPlayer(
@@ -47,11 +48,10 @@ fun MiniPlayer(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
     ) {
         Column {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -77,7 +77,7 @@ fun MiniPlayer(
                         Text(
                             it,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.secondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -92,7 +92,11 @@ fun MiniPlayer(
                     if (state.isBuffering) {
                         CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     } else {
-                        IconButton(onClick = onPlayPause) {
+                        FilledIconButton(
+                            onClick = onPlayPause,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.size(44.dp),
+                        ) {
                             Icon(
                                 if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = if (state.isPlaying) "Pause" else "Play",
@@ -111,7 +115,11 @@ fun MiniPlayer(
             }
             LinearProgressIndicator(
                 progress = { fraction },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                // Inset past the card's corner radius so the bar never pokes out of the curve.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .height(2.dp),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = Color.Transparent,
                 drawStopIndicator = {},

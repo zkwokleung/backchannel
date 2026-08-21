@@ -10,25 +10,45 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -48,6 +68,7 @@ import com.zkwokleung.backchannel.ui.player.NowPlayingScreen
 import com.zkwokleung.backchannel.ui.player.sharedPlayerViewModel
 import com.zkwokleung.backchannel.ui.player.VideoPlayerScreen
 import com.zkwokleung.backchannel.ui.settings.SettingsScreen
+import com.zkwokleung.backchannel.ui.theme.Spacing
 import com.zkwokleung.backchannel.ui.watchlists.WatchlistDetailScreen
 import com.zkwokleung.backchannel.ui.watchlists.WatchlistsScreen
 
@@ -94,8 +115,17 @@ fun AppRoot() {
 
     val playerViewModel = sharedPlayerViewModel()
     val playerState by playerViewModel.uiState.collectAsStateWithLifecycle()
-    // Hidden on the Playing tab: the full player is already on screen there.
     val showMiniPlayer = playerState.hasItem && !onVideoScreen && !onPlayingTab
+
+    // The Playing tab is a full-screen player with no nav; its collapse chevron returns to
+    // whichever browsing tab the user came from rather than a hardcoded one.
+    var lastBrowseTab by rememberSaveable { mutableStateOf(Tab.Channels.route) }
+    LaunchedEffect(currentDestination) {
+        val tabRoute = tabs.firstOrNull { tab ->
+            currentDestination?.hierarchy?.any { it.route == tab.route } == true
+        }?.route
+        if (tabRoute != null && tabRoute != Tab.NowPlaying.route) lastBrowseTab = tabRoute
+    }
 
     Scaffold(
         // This Scaffold has no topBar, so it would otherwise hand the status-bar inset to the
@@ -104,32 +134,35 @@ fun AppRoot() {
         // inset is applied exactly once.
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
-            if (!onVideoScreen) {
-                Column {
+            // Nothing on the video screen, and nothing on the Playing tab either: the full
+            // player owns that screen edge to edge.
+            if (!onVideoScreen && !onPlayingTab) {
+                Column(
+                    Modifier
+                        .navigationBarsPadding()
+                        .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                ) {
                     AnimatedVisibility(
                         visible = showMiniPlayer,
                         enter = expandVertically() + fadeIn(),
                         exit = shrinkVertically() + fadeOut(),
                     ) {
-                        MiniPlayer(
-                            state = playerState,
-                            onPlayPause = playerViewModel::playPause,
-                            onSkipForward = { playerViewModel.seekBy(30_000) },
-                            onOpen = { navController.switchTab(Tab.NowPlaying.route) },
-                        )
-                    }
-                    NavigationBar {
-                        tabs.forEach { tab ->
-                            val selected = currentDestination?.hierarchy
-                                ?.any { it.route == tab.route } == true
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { navController.switchTab(tab.route) },
-                                icon = { Icon(tab.icon, contentDescription = null) },
-                                label = { Text(stringResource(tab.labelRes)) },
+                        Column {
+                            MiniPlayer(
+                                state = playerState,
+                                onPlayPause = playerViewModel::playPause,
+                                onSkipForward = { playerViewModel.seekBy(30_000) },
+                                onOpen = { navController.switchTab(Tab.NowPlaying.route) },
                             )
+                            Spacer(Modifier.height(Spacing.sm + 2.dp))
                         }
                     }
+                    FloatingTabBar(
+                        isSelected = { tab ->
+                            currentDestination?.hierarchy?.any { it.route == tab.route } == true
+                        },
+                        onSelect = { navController.switchTab(it.route) },
+                    )
                 }
             }
         },
@@ -160,6 +193,7 @@ fun AppRoot() {
                 NowPlayingScreen(
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                     onBrowseChannels = { navController.switchTab(Tab.Channels.route) },
+                    onCollapse = { navController.switchTab(lastBrowseTab) },
                 )
             }
             composable(Tab.Settings.route) { SettingsScreen() }
@@ -220,6 +254,75 @@ fun AppRoot() {
                 },
             ) {
                 VideoPlayerScreen(onBack = { navController.popBackStack() })
+            }
+        }
+    }
+}
+
+/**
+ * The floating pill tab bar. The active tab is an icon-and-label pill on the violet container;
+ * the rest are icon-only targets, so the bar stays narrow enough to float with margins.
+ */
+@Composable
+private fun FloatingTabBar(
+    isSelected: (Tab) -> Boolean,
+    onSelect: (Tab) -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().height(64.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceAround,
+        ) {
+            tabs.forEach { tab ->
+                val label = stringResource(tab.labelRes)
+                val selected = isSelected(tab)
+                // Selecting the tab you are already on is not a no-op: switchTab pops that tab
+                // back to its start destination, which is how you get from a channel's uploads
+                // back to the channel list.
+                Row(
+                    Modifier
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (selected) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                Color.Transparent
+                            }
+                        )
+                        .selectable(
+                            selected = selected,
+                            role = Role.Tab,
+                            onClick = { onSelect(tab) },
+                        )
+                        .padding(horizontal = if (selected) Spacing.lg else Spacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        tab.icon,
+                        contentDescription = if (selected) null else label,
+                        tint = if (selected) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                    if (selected) {
+                        Spacer(Modifier.size(Spacing.sm))
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
             }
         }
     }
