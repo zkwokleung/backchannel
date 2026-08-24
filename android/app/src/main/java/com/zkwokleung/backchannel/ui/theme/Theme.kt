@@ -97,8 +97,11 @@ private val LightColors = lightColorScheme(
 
     secondary = Color(0xFF6D28D9),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFEDE9FE),
-    onSecondaryContainer = Color(0xFF312E81),
+    // Deeper than the usual light "container" tint on purpose: this is the nav's selected pill,
+    // and at #EDE9FE it sat 1.04:1 against the bar it lives on — the selection was carried
+    // entirely by the label colour. This lands near the dark theme's 1.73:1.
+    secondaryContainer = Color(0xFFC4B5FD),
+    onSecondaryContainer = Color(0xFF2E1065),
 
     tertiary = Color(0xFF4F6205),
     onTertiary = Color.White,
