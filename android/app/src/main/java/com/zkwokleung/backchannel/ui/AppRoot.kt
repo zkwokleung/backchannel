@@ -1,6 +1,10 @@
 package com.zkwokleung.backchannel.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -87,6 +91,14 @@ private val tabs = listOf(Tab.Channels, Tab.Watchlists, Tab.Settings)
  */
 private const val PLAYER_MOTION_MS = 300
 private const val TAB_FADE_MS = 140
+
+/**
+ * The selection moving between tabs. Slower than the screens' crossfade on purpose: the pill is
+ * a small thing travelling a short distance, and matching the 140ms made it look like it had
+ * simply teleported.
+ */
+private const val TAB_MOTION_MS = 220
+
 
 /** Material's emphasized curve: leaves quickly, settles slowly. */
 private val PlayerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -357,6 +369,35 @@ private fun FloatingTabBar(
             tabs.forEach { tab ->
                 val label = stringResource(tab.labelRes)
                 val selected = isSelected(tab)
+                // Three things change on selection — fill, content colour and width — and all
+                // three have to move together, or the ones that snap give the whole switch away.
+                // Width is the one that matters most: the label arriving used to jump the
+                // neighbouring tabs sideways in a single frame.
+                val motion = tween<Color>(TAB_MOTION_MS, easing = PlayerEasing)
+                val fill by animateColorAsState(
+                    if (selected) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        Color.Transparent
+                    },
+                    animationSpec = motion,
+                    label = "tabFill",
+                )
+                val contentColor by animateColorAsState(
+                    if (selected) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    animationSpec = motion,
+                    label = "tabContent",
+                )
+                val sidePadding by animateDpAsState(
+                    if (selected) Spacing.lg else Spacing.md,
+                    animationSpec = tween(TAB_MOTION_MS, easing = PlayerEasing),
+                    label = "tabPadding",
+                )
+
                 // Selecting the tab you are already on is not a no-op: switchTab pops that tab
                 // back to its start destination, which is how you get from a channel's uploads
                 // back to the channel list.
@@ -364,38 +405,45 @@ private fun FloatingTabBar(
                     Modifier
                         .height(44.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(
-                            if (selected) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                Color.Transparent
-                            }
-                        )
+                        .background(fill)
                         .selectable(
                             selected = selected,
                             role = Role.Tab,
                             onClick = { onSelect(tab) },
                         )
-                        .padding(horizontal = if (selected) Spacing.lg else Spacing.md),
+                        .padding(horizontal = sidePadding),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
                         tab.icon,
                         contentDescription = if (selected) null else label,
-                        tint = if (selected) {
-                            MaterialTheme.colorScheme.onSecondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        tint = contentColor,
                         modifier = Modifier.size(20.dp),
                     )
-                    if (selected) {
-                        Spacer(Modifier.size(Spacing.sm))
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
+                    AnimatedVisibility(
+                        visible = selected,
+                        // Expanding rather than fading alone: the width has to come in over the
+                        // same 220ms, so the pill grows into place instead of popping wider.
+                        // Anchored at the start: the default reveals the label from its right
+                        // edge, so it read as "...atchlists" jammed against the icon on the way in.
+                        enter = expandHorizontally(
+                            tween(TAB_MOTION_MS, easing = PlayerEasing),
+                            expandFrom = Alignment.Start,
+                        ) + fadeIn(tween(TAB_MOTION_MS, easing = PlayerEasing)),
+                        exit = shrinkHorizontally(
+                            tween(TAB_MOTION_MS, easing = PlayerEasing),
+                            shrinkTowards = Alignment.Start,
+                        ) + fadeOut(tween(TAB_MOTION_MS / 2)),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.size(Spacing.sm))
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = contentColor,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
