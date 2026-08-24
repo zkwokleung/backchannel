@@ -66,7 +66,9 @@ Always smoke-test `assembleRelease` on a device, not just `assembleDebug`.
 
 **Navigation.** Bottom-nav tabs each keep their own back stack; use `switchTab` (not `navigate`)
 for anything that jumps between tabs, or the destination nests inside the wrong stack and
-saved-state restore bounces the user back to it.
+saved-state restore bounces the user back to it. The player is deliberately not a tab — it is
+pushed over whatever you were doing (`openPlayer`), so leaving it is a plain `popBackStack` that
+lands back where you came from rather than on a tab's start destination.
 
 **Release asset names are an API.** The in-app updater (`update/`) finds its download by parsing
 the filenames `release.yml` stages:

@@ -56,7 +56,8 @@ The app fetches the channel's most recent 100 uploads and caches them on the dev
 
 **Listen** — tap any video to start audio-only playback. It keeps playing with the screen off
 and appears on your lock screen and in the notification shade with play/pause/skip controls. A
-mini-player above the tab bar controls it from anywhere in the app.
+mini-player above the tab bar controls it from anywhere in the app; tap it — or the
+notification — to open the full player, and drag the player down to put it back.
 
 **Watch** — the **⋮** menu on any video offers *Watch (video)*, or use *Switch to video* from
 Now Playing. In the video screen, the picture-in-picture button (or pressing Home) shrinks it to
