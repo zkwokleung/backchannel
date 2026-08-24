@@ -2,7 +2,7 @@ package com.zkwokleung.backchannel.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.core.CubicBezierEasing
@@ -362,9 +362,9 @@ private fun FloatingTabBar(
         modifier = Modifier.fillMaxWidth().height(64.dp),
     ) {
         Row(
-            Modifier.padding(horizontal = Spacing.md),
+            Modifier.padding(horizontal = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceAround,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             tabs.forEach { tab ->
                 val label = stringResource(tab.labelRes)
@@ -392,10 +392,15 @@ private fun FloatingTabBar(
                     animationSpec = motion,
                     label = "tabContent",
                 )
-                val sidePadding by animateDpAsState(
-                    if (selected) Spacing.lg else Spacing.md,
+                // Every tab holds a share of the bar rather than shrinking to its icon. An
+                // icon-only tab was a 44dp button adrift in a slot three times that wide: the
+                // space around it looked tappable and was not, and the press effect came back as
+                // a small circle instead of the pill the selected state uses. The selected share
+                // is larger to fit the label, and animating the weight is what grows the pill.
+                val share by animateFloatAsState(
+                    if (selected) 1.9f else 1f,
                     animationSpec = tween(TAB_MOTION_MS, easing = PlayerEasing),
-                    label = "tabPadding",
+                    label = "tabShare",
                 )
 
                 // Selecting the tab you are already on is not a no-op: switchTab pops that tab
@@ -403,6 +408,7 @@ private fun FloatingTabBar(
                 // back to the channel list.
                 Row(
                     Modifier
+                        .weight(share)
                         .height(44.dp)
                         .clip(RoundedCornerShape(50))
                         .background(fill)
@@ -411,8 +417,9 @@ private fun FloatingTabBar(
                             role = Role.Tab,
                             onClick = { onSelect(tab) },
                         )
-                        .padding(horizontal = sidePadding),
+                        .padding(horizontal = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
                 ) {
                     Icon(
                         tab.icon,
