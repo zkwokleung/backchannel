@@ -51,8 +51,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -366,6 +368,12 @@ private fun FloatingTabBar(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth().height(64.dp),
     ) {
+        // At the largest accessibility font sizes the label cannot fit its share and was
+        // silently clipping mid-word ("Watchlist"). Past that point the pills go icon-only —
+        // the fill still shows which tab is selected, and the label moves to the content
+        // description so a screen reader is not left with an unlabelled button.
+        val labelled = LocalDensity.current.fontScale <= 1.3f
+
         Row(
             Modifier.padding(horizontal = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -423,7 +431,7 @@ private fun FloatingTabBar(
                 )
 
                 val share by animateFloatAsState(
-                    if (selected) 1.9f else 1f,
+                    if (selected && labelled) 1.9f else 1f,
                     animationSpec = tween(TAB_MOTION_MS, easing = PlayerEasing),
                     label = "tabShare",
                 )
@@ -451,12 +459,12 @@ private fun FloatingTabBar(
                 ) {
                     Icon(
                         tab.icon,
-                        contentDescription = if (selected) null else label,
+                        contentDescription = if (selected && labelled) null else label,
                         tint = contentColor,
                         modifier = Modifier.size(20.dp),
                     )
                     AnimatedVisibility(
-                        visible = selected,
+                        visible = selected && labelled,
                         // Expanding rather than fading alone: the width has to come in over the
                         // same 220ms, so the pill grows into place instead of popping wider.
                         // Anchored at the start: the default reveals the label from its right
@@ -477,6 +485,9 @@ private fun FloatingTabBar(
                                 style = MaterialTheme.typography.labelLarge,
                                 color = contentColor,
                                 maxLines = 1,
+                                // Backstop for narrow screens, where the label can run out of
+                                // room below the cutoff above.
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
