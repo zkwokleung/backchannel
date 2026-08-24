@@ -1,6 +1,7 @@
 package com.zkwokleung.backchannel.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.slideInHorizontally
@@ -82,6 +83,18 @@ sealed class Tab(val route: String, val labelRes: Int, val icon: ImageVector) {
 private val tabs = listOf(Tab.Channels, Tab.Watchlists, Tab.NowPlaying, Tab.Settings)
 
 /**
+ * Opening the player is one gesture, not two animations that happen to overlap: the bottom bar
+ * collapses while the player rises into the space it frees. Both sides use these values so they
+ * stay in step — the bar's height is what the Scaffold turns into the player's content padding,
+ * so a mismatch shows up as the player resizing after it has arrived.
+ */
+private const val PLAYER_MOTION_MS = 300
+private const val TAB_FADE_MS = 140
+
+/** Material's emphasized curve: leaves quickly, settles slowly. */
+private val PlayerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+
+/**
  * Switches bottom-nav tabs, saving/restoring each tab's own back stack. Also used when a
  * screen sends the user to another tab (e.g. "play" jumping to Now Playing) — going through
  * [navigate] directly would nest that destination inside the current tab's stack, and the
@@ -115,7 +128,9 @@ fun AppRoot() {
 
     val playerViewModel = sharedPlayerViewModel()
     val playerState by playerViewModel.uiState.collectAsStateWithLifecycle()
-    val showMiniPlayer = playerState.hasItem && !onVideoScreen && !onPlayingTab
+    // Route-based hiding belongs to the bar as a whole (below); repeating it here ran a
+    // second, competing animation on a subtree that was being removed anyway.
+    val showMiniPlayer = playerState.hasItem
 
     // The Playing tab is a full-screen player with no nav; its collapse chevron returns to
     // whichever browsing tab the user came from rather than a hardcoded one.
@@ -135,8 +150,16 @@ fun AppRoot() {
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
             // Nothing on the video screen, and nothing on the Playing tab either: the full
-            // player owns that screen edge to edge.
-            if (!onVideoScreen && !onPlayingTab) {
+            // player owns that screen edge to edge. Animated rather than removed outright —
+            // dropping it from composition snapped the Scaffold's content padding from ~150dp
+            // to zero in one frame, which is what made every screen jolt on the way in.
+            AnimatedVisibility(
+                visible = !onVideoScreen && !onPlayingTab,
+                enter = expandVertically(tween(PLAYER_MOTION_MS, easing = PlayerEasing)) +
+                    fadeIn(tween(PLAYER_MOTION_MS, easing = PlayerEasing)),
+                exit = shrinkVertically(tween(PLAYER_MOTION_MS, easing = PlayerEasing)) +
+                    fadeOut(tween(PLAYER_MOTION_MS / 2)),
+            ) {
                 Column(
                     Modifier
                         .navigationBarsPadding()
@@ -158,8 +181,15 @@ fun AppRoot() {
                         }
                     }
                     FloatingTabBar(
+                        // While the bar collapses away, keep the pill on the tab being left.
+                        // Reading the live destination made it restyle to Playing first, so the
+                        // selection visibly jumped a beat before the bar itself went.
                         isSelected = { tab ->
-                            currentDestination?.hierarchy?.any { it.route == tab.route } == true
+                            if (onPlayingTab) {
+                                tab.route == lastBrowseTab
+                            } else {
+                                currentDestination?.hierarchy?.any { it.route == tab.route } == true
+                            }
                         },
                         onSelect = { navController.switchTab(it.route) },
                     )
@@ -173,8 +203,16 @@ fun AppRoot() {
             // Tabs crossfade: a horizontal slide between siblings reads as broken, because tab
             // order carries no direction and the bottom bar stays put. Detail routes below
             // override this with a slide, which does have a direction.
-            enterTransition = { fadeIn(tween(140)) },
-            exitTransition = { fadeOut(tween(140)) },
+            enterTransition = { fadeIn(tween(TAB_FADE_MS)) },
+            exitTransition = {
+                // The player rises over whatever you were looking at, so that screen has to
+                // outlast a 140ms fade or you see bare background through the gap.
+                if (targetState.destination.route == Tab.NowPlaying.route) {
+                    fadeOut(tween(PLAYER_MOTION_MS, easing = PlayerEasing))
+                } else {
+                    fadeOut(tween(TAB_FADE_MS))
+                }
+            },
             modifier = Modifier
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding),
@@ -189,7 +227,20 @@ fun AppRoot() {
                     onOpenWatchlist = { navController.navigate(Routes.watchlistDetail(it)) },
                 )
             }
-            composable(Tab.NowPlaying.route) {
+            composable(
+                Tab.NowPlaying.route,
+                // A crossfade reads as a flicker for a whole-screen surface. Rising from the
+                // mini-player's edge matches what the user just tapped, and mirrors the video
+                // route's vertical-modal move.
+                enterTransition = { playerRise() },
+                exitTransition = { playerSettle() },
+                popEnterTransition = { playerRise() },
+                popExitTransition = { playerSettle() },
+                // No size animation: the content area is still growing as the bar collapses,
+                // and letting AnimatedContent animate that made the player render small and
+                // inflate to full size after it had already arrived.
+                sizeTransform = { null },
+            ) {
                 NowPlayingScreen(
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                     onBrowseChannels = { navController.switchTab(Tab.Channels.route) },
@@ -258,6 +309,24 @@ fun AppRoot() {
         }
     }
 }
+
+/**
+ * The player rising into place, and settling back down. Offset by a fifth of the screen rather
+ * than a full height: the mini-player it grows out of already sits near the bottom, so a
+ * full-height slide overshoots what the user just touched. The fade finishes early so the
+ * surface is opaque for most of the travel.
+ */
+private fun playerRise() =
+    slideInVertically(
+        initialOffsetY = { it / 5 },
+        animationSpec = tween(PLAYER_MOTION_MS, easing = PlayerEasing),
+    ) + fadeIn(tween(PLAYER_MOTION_MS / 2, easing = PlayerEasing))
+
+private fun playerSettle() =
+    slideOutVertically(
+        targetOffsetY = { it / 5 },
+        animationSpec = tween(PLAYER_MOTION_MS, easing = PlayerEasing),
+    ) + fadeOut(tween(PLAYER_MOTION_MS, easing = PlayerEasing))
 
 /**
  * The floating pill tab bar. The active tab is an icon-and-label pill on the violet container;
