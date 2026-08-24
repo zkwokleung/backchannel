@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -40,8 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,11 +74,10 @@ import com.zkwokleung.backchannel.ui.watchlists.WatchlistsScreen
 sealed class Tab(val route: String, val labelRes: Int, val icon: ImageVector) {
     data object Channels : Tab("channels", R.string.tab_channels, Icons.Filled.Subscriptions)
     data object Watchlists : Tab("watchlists", R.string.tab_watchlists, Icons.Filled.VideoLibrary)
-    data object NowPlaying : Tab("now_playing", R.string.tab_now_playing, Icons.Filled.PlayCircle)
     data object Settings : Tab("settings", R.string.tab_settings, Icons.Filled.Settings)
 }
 
-private val tabs = listOf(Tab.Channels, Tab.Watchlists, Tab.NowPlaying, Tab.Settings)
+private val tabs = listOf(Tab.Channels, Tab.Watchlists, Tab.Settings)
 
 /**
  * Opening the player is one gesture, not two animations that happen to overlap: the bottom bar
@@ -108,9 +105,20 @@ private fun NavHostController.switchTab(route: String) {
     }
 }
 
+/**
+ * The player sits over whatever you were doing rather than beside it. As a tab it needed a guess
+ * about which tab to return to, and it answered wrongly — a tab's back stack pops to the start
+ * destination, so leaving it from Watchlists landed on Channels. Pushed, the chevron, the drag
+ * and the system Back button are one pop, back to where you actually were.
+ */
+private fun NavHostController.openPlayer() {
+    navigate(Routes.NOW_PLAYING) { launchSingleTop = true }
+}
+
 private object Routes {
     const val CHANNEL_DETAIL = "channel/{channelId}"
     const val WATCHLIST_DETAIL = "watchlist/{watchlistId}"
+    const val NOW_PLAYING = "now_playing"
     const val VIDEO = "video"
 
     fun channelDetail(channelId: String) = "channel/$channelId"
@@ -119,12 +127,12 @@ private object Routes {
 
 @UnstableApi
 @Composable
-fun AppRoot() {
+fun AppRoot(openPlayerRequests: Int = 0) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val onVideoScreen = currentDestination?.route == Routes.VIDEO
-    val onPlayingTab = currentDestination?.hierarchy?.any { it.route == Tab.NowPlaying.route } == true
+    val onPlayer = currentDestination?.route == Routes.NOW_PLAYING
 
     val playerViewModel = sharedPlayerViewModel()
     val playerState by playerViewModel.uiState.collectAsStateWithLifecycle()
@@ -132,14 +140,21 @@ fun AppRoot() {
     // second, competing animation on a subtree that was being removed anyway.
     val showMiniPlayer = playerState.hasItem
 
-    // The Playing tab is a full-screen player with no nav; its collapse chevron returns to
-    // whichever browsing tab the user came from rather than a hardcoded one.
-    var lastBrowseTab by rememberSaveable { mutableStateOf(Tab.Channels.route) }
-    LaunchedEffect(currentDestination) {
-        val tabRoute = tabs.firstOrNull { tab ->
-            currentDestination?.hierarchy?.any { it.route == tab.route } == true
-        }?.route
-        if (tabRoute != null && tabRoute != Tab.NowPlaying.route) lastBrowseTab = tabRoute
+    val liveTab = tabs.firstOrNull { tab ->
+        currentDestination?.hierarchy?.any { it.route == tab.route } == true
+    }?.route
+    // Held a frame behind, so the bar keeps whatever selection it had while it collapses —
+    // including no selection at all, which is what the detail screens show.
+    val frozenTab = remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(onPlayer, liveTab) {
+        if (!onPlayer) frozenTab.value = liveTab
+    }
+    val selectedTab = if (onPlayer) frozenTab.value else liveTab
+
+    // Tapping the media notification lands on the player — the one job the Playing tab was
+    // there for. Keyed on the counter so a second tap re-opens it after you have collapsed it.
+    LaunchedEffect(openPlayerRequests) {
+        if (openPlayerRequests > 0) navController.openPlayer()
     }
 
     Scaffold(
@@ -149,12 +164,12 @@ fun AppRoot() {
         // inset is applied exactly once.
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
-            // Nothing on the video screen, and nothing on the Playing tab either: the full
+            // Nothing on the video screen, and nothing under the player either: the full
             // player owns that screen edge to edge. Animated rather than removed outright —
             // dropping it from composition snapped the Scaffold's content padding from ~150dp
             // to zero in one frame, which is what made every screen jolt on the way in.
             AnimatedVisibility(
-                visible = !onVideoScreen && !onPlayingTab,
+                visible = !onVideoScreen && !onPlayer,
                 enter = expandVertically(tween(PLAYER_MOTION_MS, easing = PlayerEasing)) +
                     fadeIn(tween(PLAYER_MOTION_MS, easing = PlayerEasing)),
                 exit = shrinkVertically(tween(PLAYER_MOTION_MS, easing = PlayerEasing)) +
@@ -175,22 +190,13 @@ fun AppRoot() {
                                 state = playerState,
                                 onPlayPause = playerViewModel::playPause,
                                 onSkipForward = { playerViewModel.seekBy(30_000) },
-                                onOpen = { navController.switchTab(Tab.NowPlaying.route) },
+                                onOpen = { navController.openPlayer() },
                             )
                             Spacer(Modifier.height(Spacing.sm + 2.dp))
                         }
                     }
                     FloatingTabBar(
-                        // While the bar collapses away, keep the pill on the tab being left.
-                        // Reading the live destination made it restyle to Playing first, so the
-                        // selection visibly jumped a beat before the bar itself went.
-                        isSelected = { tab ->
-                            if (onPlayingTab) {
-                                tab.route == lastBrowseTab
-                            } else {
-                                currentDestination?.hierarchy?.any { it.route == tab.route } == true
-                            }
-                        },
+                        isSelected = { tab -> tab.route == selectedTab },
                         onSelect = { navController.switchTab(it.route) },
                     )
                 }
@@ -207,7 +213,7 @@ fun AppRoot() {
             exitTransition = {
                 // The player rises over whatever you were looking at, so that screen has to
                 // outlast a 140ms fade or you see bare background through the gap.
-                if (targetState.destination.route == Tab.NowPlaying.route) {
+                if (targetState.destination.route == Routes.NOW_PLAYING) {
                     fadeOut(tween(PLAYER_MOTION_MS, easing = PlayerEasing))
                 } else {
                     fadeOut(tween(TAB_FADE_MS))
@@ -228,7 +234,7 @@ fun AppRoot() {
                 )
             }
             composable(
-                Tab.NowPlaying.route,
+                Routes.NOW_PLAYING,
                 // A crossfade reads as a flicker for a whole-screen surface. Rising from the
                 // mini-player's edge matches what the user just tapped, and mirrors the video
                 // route's vertical-modal move.
@@ -244,7 +250,7 @@ fun AppRoot() {
                 NowPlayingScreen(
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                     onBrowseChannels = { navController.switchTab(Tab.Channels.route) },
-                    onCollapse = { navController.switchTab(lastBrowseTab) },
+                    onCollapse = { navController.popBackStack() },
                 )
             }
             composable(Tab.Settings.route) { SettingsScreen() }
@@ -267,7 +273,7 @@ fun AppRoot() {
                 ChannelDetailScreen(
                     channelYoutubeId = channelId,
                     onBack = { navController.popBackStack() },
-                    onOpenNowPlaying = { navController.switchTab(Tab.NowPlaying.route) },
+                    onOpenNowPlaying = { navController.openPlayer() },
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                 )
             }
@@ -289,7 +295,7 @@ fun AppRoot() {
                 WatchlistDetailScreen(
                     watchlistId = watchlistId,
                     onBack = { navController.popBackStack() },
-                    onOpenNowPlaying = { navController.switchTab(Tab.NowPlaying.route) },
+                    onOpenNowPlaying = { navController.openPlayer() },
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                 )
             }

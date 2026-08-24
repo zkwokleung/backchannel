@@ -1,11 +1,15 @@
 package com.zkwokleung.backchannel
 
+import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.OptIn
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.media3.common.util.UnstableApi
 import com.zkwokleung.backchannel.playback.PipCoordinator
@@ -14,16 +18,30 @@ import com.zkwokleung.backchannel.ui.theme.BackchannelTheme
 
 class MainActivity : ComponentActivity() {
 
+    /**
+     * Bumped for each request to open the player, rather than held as a boolean: the activity is
+     * `singleTask`, so a second notification tap arrives at the same instance and has to be
+     * distinguishable from the first.
+     */
+    private var playerRequests by mutableIntStateOf(0)
+
     @OptIn(UnstableApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (intent.wantsPlayer()) playerRequests++
         setContent {
             BackchannelTheme {
-                AppRoot()
+                AppRoot(openPlayerRequests = playerRequests)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.wantsPlayer()) playerRequests++
     }
 
     override fun onDestroy() {
@@ -50,4 +68,12 @@ class MainActivity : ComponentActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         PipCoordinator.onPipModeChanged(isInPictureInPictureMode)
     }
+
+    companion object {
+        /** Set by the media session's notification so tapping it lands on the player. */
+        const val EXTRA_OPEN_PLAYER = "com.zkwokleung.backchannel.OPEN_PLAYER"
+    }
 }
+
+private fun Intent.wantsPlayer(): Boolean =
+    getBooleanExtra(MainActivity.EXTRA_OPEN_PLAYER, false)

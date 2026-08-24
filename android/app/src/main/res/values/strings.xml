@@ -3,6 +3,5 @@
     <string name="app_name">Backchannel</string>
     <string name="tab_channels">Channels</string>
     <string name="tab_watchlists">Watchlists</string>
-    <string name="tab_now_playing">Playing</string>
     <string name="tab_settings">Settings</string>
 </resources>
