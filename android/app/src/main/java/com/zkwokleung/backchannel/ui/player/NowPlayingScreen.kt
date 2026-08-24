@@ -1,6 +1,6 @@
 package com.zkwokleung.backchannel.ui.player
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -120,17 +120,23 @@ fun NowPlayingScreen(
     // people try first coming from other players.
     val scope = rememberCoroutineScope()
     val queueState = rememberLazyListState()
-    val drag = remember { Animatable(0f) }
+    // Held as plain state and written synchronously. Behind an Animatable the offset only
+    // moved when the queued coroutine ran, so two scroll deltas dispatched in the same frame
+    // both clamped against the same stale value, over-consumed, and drove the player above its
+    // resting position until the spring pulled it back.
+    var dragPx by remember { mutableFloatStateOf(0f) }
     val dismissPx = with(LocalDensity.current) { DismissDistance.toPx() }
 
     val settle: (Float) -> Unit = { velocity ->
         scope.launch {
-            if (drag.value > dismissPx || velocity > DISMISS_VELOCITY) {
+            if (dragPx > dismissPx || velocity > DISMISS_VELOCITY) {
                 onCollapse()
             } else {
                 // Spring rather than tween: a snap-back is a physical recoil, and it has to
                 // survive being released mid-flight without looking like it restarted.
-                drag.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                animate(dragPx, 0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) {
+                    value, _ -> dragPx = value
+                }
             }
         }
     }
@@ -141,11 +147,11 @@ fun NowPlayingScreen(
     val dragToDismiss = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput || available.y >= 0f || drag.value <= 0f) {
+                if (source != NestedScrollSource.UserInput || available.y >= 0f || dragPx <= 0f) {
                     return Offset.Zero
                 }
-                val delta = -minOf(-available.y, drag.value)
-                scope.launch { drag.snapTo(drag.value + delta) }
+                val delta = -minOf(-available.y, dragPx)
+                dragPx += delta
                 return Offset(0f, delta)
             }
 
@@ -155,12 +161,12 @@ fun NowPlayingScreen(
                 source: NestedScrollSource,
             ): Offset {
                 if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
-                scope.launch { drag.snapTo(drag.value + available.y) }
+                dragPx += available.y
                 return Offset(0f, available.y)
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (drag.value <= 0f) return Velocity.Zero
+                if (dragPx <= 0f) return Velocity.Zero
                 // Swallow the fling: the queue must not coast on after a drag that was aimed
                 // at the player.
                 settle(available.y)
@@ -171,7 +177,7 @@ fun NowPlayingScreen(
 
     Scaffold(
         modifier = Modifier
-            .offset { IntOffset(0, drag.value.roundToInt()) }
+            .offset { IntOffset(0, dragPx.roundToInt()) }
             .nestedScroll(dragToDismiss),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -183,7 +189,7 @@ fun NowPlayingScreen(
                     .draggable(
                         orientation = Orientation.Vertical,
                         state = rememberDraggableState { delta ->
-                            scope.launch { drag.snapTo((drag.value + delta).coerceAtLeast(0f)) }
+                            dragPx = (dragPx + delta).coerceAtLeast(0f)
                         },
                         onDragStopped = { velocity -> settle(velocity) },
                     )
