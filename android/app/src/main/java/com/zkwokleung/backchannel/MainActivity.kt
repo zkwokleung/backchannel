@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (intent.wantsPlayer()) playerRequests++
+        consumePlayerRequest()
         setContent {
             BackchannelTheme {
                 AppRoot(openPlayerRequests = playerRequests)
@@ -41,7 +41,20 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.wantsPlayer()) playerRequests++
+        consumePlayerRequest()
+    }
+
+    /**
+     * Clears the extra as it is read. `setIntent` pins the launching intent for the life of the
+     * activity, so leaving it set meant every later recreation — a dark-mode toggle, a font-size
+     * change, a relaunch from Recents — replayed it and yanked the player back over whatever the
+     * user had navigated to.
+     */
+    private fun consumePlayerRequest() {
+        if (!intent.wantsPlayer()) return
+        intent.removeExtra(EXTRA_OPEN_PLAYER)
+        setIntent(intent)
+        playerRequests++
     }
 
     override fun onDestroy() {

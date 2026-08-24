@@ -131,7 +131,13 @@ private fun NavHostController.switchTab(route: String) {
  * and the system Back button are one pop, back to where you actually were.
  */
 private fun NavHostController.openPlayer() {
-    navigate(Routes.NOW_PLAYING) { launchSingleTop = true }
+    navigate(Routes.NOW_PLAYING) {
+        launchSingleTop = true
+        // launchSingleTop alone only dedupes when the player is already the top entry. From the
+        // video screen the stack is [.., now_playing, video], so a notification tap would stack
+        // a second player and collapsing would drop the user back onto the video.
+        popUpTo(Routes.NOW_PLAYING) { inclusive = true }
+    }
 }
 
 private object Routes {
@@ -269,7 +275,12 @@ fun AppRoot(openPlayerRequests: Int = 0) {
                 NowPlayingScreen(
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
                     onBrowseChannels = { navController.switchTab(Tab.Channels.route) },
-                    onCollapse = { navController.popBackStack() },
+                    // Addressed to the player rather than "whatever is on top": the screen
+                    // stays hit-testable through its 300ms exit, and two quick taps on the
+                    // chevron were enough to pop the screen behind it as well.
+                    onCollapse = {
+                        navController.popBackStack(Routes.NOW_PLAYING, inclusive = true)
+                    },
                 )
             }
             composable(Tab.Settings.route) { SettingsScreen() }
