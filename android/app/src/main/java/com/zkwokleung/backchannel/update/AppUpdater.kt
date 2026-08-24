@@ -69,7 +69,7 @@ class AppUpdater(
          * Android 10+, so the Settings screen launches it when it is actually on screen.
          */
         data class AwaitingConfirmation(val update: AvailableUpdate, val intent: Intent) : State
-        data object Installing : State
+        data class Installing(val update: AvailableUpdate) : State
 
         /** Carries the offer it failed on, so Retry has something to resume. */
         data class Failed(val failure: UpdateFailure, val update: AvailableUpdate? = null) : State
@@ -293,7 +293,7 @@ class AppUpdater(
             return
         }
         scope.launch {
-            _state.value = State.Installing
+            _state.value = State.Installing(ready.update)
             runCatching { installer.install(ready.apk) }.onFailure { t ->
                 Log.w(TAG, "commit failed", t)
                 _state.value = State.Failed(failureFor(t), ready.update)
@@ -326,7 +326,8 @@ class AppUpdater(
 
     /** Called once the Settings screen has actually launched the confirmation activity. */
     fun onConfirmationLaunched() {
-        if (_state.value is State.AwaitingConfirmation) _state.value = State.Installing
+        val awaiting = _state.value as? State.AwaitingConfirmation ?: return
+        _state.value = State.Installing(awaiting.update)
     }
 
     /**
@@ -405,6 +406,7 @@ class AppUpdater(
             is State.Verifying -> update
             is State.ReadyToInstall -> update
             is State.AwaitingConfirmation -> update
+            is State.Installing -> update
             is State.Failed -> update
             else -> null
         }
