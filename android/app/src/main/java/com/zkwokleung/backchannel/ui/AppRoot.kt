@@ -17,6 +17,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -99,6 +101,9 @@ private const val TAB_FADE_MS = 140
  */
 private const val TAB_MOTION_MS = 220
 
+/** Press feedback: quick enough to feel immediate, slow enough to survive a fast tap. */
+private const val TAB_PRESS_IN_MS = 80
+private const val TAB_PRESS_OUT_MS = 220
 
 /** Material's emphasized curve: leaves quickly, settles slowly. */
 private val PlayerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -397,6 +402,26 @@ private fun FloatingTabBar(
                 // space around it looked tappable and was not, and the press effect came back as
                 // a small circle instead of the pill the selected state uses. The selected share
                 // is larger to fit the label, and animating the weight is what grows the pill.
+                // A bounded ripple grows outward from the touch point, and this pill is wide
+                // enough (173dp when selected) that a normal tap ends long before the ripple
+                // reaches either end — so the feedback read as a small circle adrift in a big
+                // button. Measured: the ripple needed a ~2s held press to span the pill. A flat
+                // state layer covers the whole thing at once instead.
+                val interactions = remember { MutableInteractionSource() }
+                val pressed by interactions.collectIsPressedAsState()
+                val pressLayer by animateColorAsState(
+                    if (pressed) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    } else {
+                        Color.Transparent
+                    },
+                    animationSpec = tween(
+                        durationMillis = if (pressed) TAB_PRESS_IN_MS else TAB_PRESS_OUT_MS,
+                        easing = PlayerEasing,
+                    ),
+                    label = "tabPress",
+                )
+
                 val share by animateFloatAsState(
                     if (selected) 1.9f else 1f,
                     animationSpec = tween(TAB_MOTION_MS, easing = PlayerEasing),
@@ -412,8 +437,11 @@ private fun FloatingTabBar(
                         .height(44.dp)
                         .clip(RoundedCornerShape(50))
                         .background(fill)
+                        .background(pressLayer)
                         .selectable(
                             selected = selected,
+                            interactionSource = interactions,
+                            indication = null,
                             role = Role.Tab,
                             onClick = { onSelect(tab) },
                         )
