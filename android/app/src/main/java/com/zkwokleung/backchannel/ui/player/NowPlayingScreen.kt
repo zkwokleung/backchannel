@@ -1,8 +1,14 @@
 package com.zkwokleung.backchannel.ui.player
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,8 +22,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forward30
@@ -52,15 +60,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -71,8 +87,16 @@ import com.zkwokleung.backchannel.ui.common.Thumbnail
 import com.zkwokleung.backchannel.ui.common.formatMillis
 import com.zkwokleung.backchannel.ui.theme.Spacing
 import com.zkwokleung.backchannel.ui.theme.timecode
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private val SPEEDS = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+
+/** How far the player has to travel before letting go minimises it rather than snapping back. */
+private val DismissDistance = 140.dp
+
+/** A flick past this (px/s) minimises from anywhere, so a short fast swipe works too. */
+private const val DISMISS_VELOCITY = 1200f
 
 @Composable
 fun NowPlayingScreen(
@@ -92,15 +116,77 @@ fun NowPlayingScreen(
         }
     }
 
-    // The player owns the whole screen (the tab bar is hidden here), so the header's collapse
-    // chevron is the only way back out — it stays present even in the empty state.
+    // Drag down to minimise. The chevron stays the discoverable way out; this is the gesture
+    // people try first coming from other players.
+    val scope = rememberCoroutineScope()
+    val queueState = rememberLazyListState()
+    val drag = remember { Animatable(0f) }
+    val dismissPx = with(LocalDensity.current) { DismissDistance.toPx() }
+
+    val settle: (Float) -> Unit = { velocity ->
+        scope.launch {
+            if (drag.value > dismissPx || velocity > DISMISS_VELOCITY) {
+                onCollapse()
+            } else {
+                // Spring rather than tween: a snap-back is a physical recoil, and it has to
+                // survive being released mid-flight without looking like it restarted.
+                drag.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+            }
+        }
+    }
+
+    // The queue scrolls; the player drags. This hands one gesture between them: the player only
+    // moves on downward drags the queue itself could not use (so, when it is already at the
+    // top), and an upward drag closes that gap before the queue starts scrolling again.
+    val dragToDismiss = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y >= 0f || drag.value <= 0f) {
+                    return Offset.Zero
+                }
+                val delta = -minOf(-available.y, drag.value)
+                scope.launch { drag.snapTo(drag.value + delta) }
+                return Offset(0f, delta)
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+                scope.launch { drag.snapTo(drag.value + available.y) }
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (drag.value <= 0f) return Velocity.Zero
+                // Swallow the fling: the queue must not coast on after a drag that was aimed
+                // at the player.
+                settle(available.y)
+                return available
+            }
+        }
+    }
+
     Scaffold(
+        modifier = Modifier
+            .offset { IntOffset(0, drag.value.roundToInt()) }
+            .nestedScroll(dragToDismiss),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Row(
                 Modifier
                     .statusBarsPadding()
                     .fillMaxWidth()
+                    // Dragging the header works wherever the queue happens to be scrolled to.
+                    .draggable(
+                        orientation = Orientation.Vertical,
+                        state = rememberDraggableState { delta ->
+                            scope.launch { drag.snapTo((drag.value + delta).coerceAtLeast(0f)) }
+                        },
+                        onDragStopped = { velocity -> settle(velocity) },
+                    )
                     .padding(horizontal = Spacing.xs, vertical = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -136,6 +222,7 @@ fun NowPlayingScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
+            state = queueState,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             item {
