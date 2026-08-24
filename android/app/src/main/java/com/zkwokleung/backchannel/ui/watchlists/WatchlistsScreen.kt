@@ -57,7 +57,11 @@ fun WatchlistsScreen(onOpenWatchlist: (Long) -> Unit) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("Watchlists") }) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreate = true }) {
+            FloatingActionButton(
+                onClick = { showCreate = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
                 Icon(Icons.Filled.Add, contentDescription = "New watchlist")
             }
         },

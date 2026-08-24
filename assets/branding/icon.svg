@@ -24,6 +24,6 @@
     <rect x="358" y="322" width="76" height="380" rx="38"/>
     <rect x="474" y="374" width="76" height="276" rx="38"/>
     <rect x="590" y="426" width="76" height="172" rx="38"/>
-    <rect x="706" y="472" width="76" height="80" rx="38"/>
+    <rect x="706" y="472" width="76" height="80" rx="38" fill="#d8f26a"/>
   </g>
 </svg>

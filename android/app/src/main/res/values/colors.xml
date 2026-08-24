@@ -3,5 +3,5 @@
     <color name="ic_launcher_background">#4C2A9E</color>
     <color name="splash_background">#312E81</color>
     <!-- Matches the Compose light background; overridden in values-night. -->
-    <color name="window_background">#FAF9FD</color>
+    <color name="window_background">#FAF9FC</color>
 </resources>

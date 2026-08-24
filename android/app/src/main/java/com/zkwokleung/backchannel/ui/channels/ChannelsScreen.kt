@@ -61,7 +61,11 @@ fun ChannelsScreen(onOpenChannel: (String) -> Unit) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("Channels") }) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
                 Icon(Icons.Filled.Add, contentDescription = "Add channel")
             }
         },
