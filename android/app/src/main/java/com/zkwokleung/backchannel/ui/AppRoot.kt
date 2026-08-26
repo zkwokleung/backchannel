@@ -1,5 +1,6 @@
 package com.zkwokleung.backchannel.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -25,11 +26,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,9 +62,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
-import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -69,7 +74,6 @@ import androidx.navigation.navArgument
 import com.zkwokleung.backchannel.R
 import com.zkwokleung.backchannel.ui.channels.ChannelDetailScreen
 import com.zkwokleung.backchannel.ui.channels.ChannelsScreen
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zkwokleung.backchannel.ui.player.MiniPlayer
 import com.zkwokleung.backchannel.ui.player.NowPlayingScreen
 import com.zkwokleung.backchannel.ui.player.sharedPlayerViewModel
@@ -78,13 +82,15 @@ import com.zkwokleung.backchannel.ui.settings.SettingsScreen
 import com.zkwokleung.backchannel.ui.theme.Spacing
 import com.zkwokleung.backchannel.ui.watchlists.WatchlistDetailScreen
 import com.zkwokleung.backchannel.ui.watchlists.WatchlistsScreen
+import kotlinx.coroutines.launch
 
-sealed class Tab(val route: String, val labelRes: Int, val icon: ImageVector) {
-    data object Channels : Tab("channels", R.string.tab_channels, Icons.Filled.Subscriptions)
-    data object Watchlists : Tab("watchlists", R.string.tab_watchlists, Icons.Filled.VideoLibrary)
-    data object Settings : Tab("settings", R.string.tab_settings, Icons.Filled.Settings)
+sealed class Tab(val labelRes: Int, val icon: ImageVector) {
+    data object Channels : Tab(R.string.tab_channels, Icons.Filled.Subscriptions)
+    data object Watchlists : Tab(R.string.tab_watchlists, Icons.Filled.VideoLibrary)
+    data object Settings : Tab(R.string.tab_settings, Icons.Filled.Settings)
 }
 
+/** Page order of the home pager; a tab's index here is its page. */
 private val tabs = listOf(Tab.Channels, Tab.Watchlists, Tab.Settings)
 
 /**
@@ -94,12 +100,12 @@ private val tabs = listOf(Tab.Channels, Tab.Watchlists, Tab.Settings)
  * so a mismatch shows up as the player resizing after it has arrived.
  */
 private const val PLAYER_MOTION_MS = 300
-private const val TAB_FADE_MS = 140
+private const val ROUTE_FADE_MS = 140
 
 /**
- * The selection moving between tabs. Slower than the screens' crossfade on purpose: the pill is
- * a small thing travelling a short distance, and matching the 140ms made it look like it had
- * simply teleported.
+ * The selection moving between tabs. Slower than the route fade on purpose: the pill is a small
+ * thing travelling a short distance, and matching the 140ms made it look like it had simply
+ * teleported.
  */
 private const val TAB_MOTION_MS = 220
 
@@ -109,20 +115,6 @@ private const val TAB_PRESS_OUT_MS = 220
 
 /** Material's emphasized curve: leaves quickly, settles slowly. */
 private val PlayerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-
-/**
- * Switches bottom-nav tabs, saving/restoring each tab's own back stack. Also used when a
- * screen sends the user to another tab (e.g. "play" jumping to Now Playing) — going through
- * [navigate] directly would nest that destination inside the current tab's stack, and the
- * saved-state restore would then bounce the user back to it.
- */
-private fun NavHostController.switchTab(route: String) {
-    navigate(route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
-    }
-}
 
 /**
  * The player sits over whatever you were doing rather than beside it. As a tab it needed a guess
@@ -141,6 +133,7 @@ private fun NavHostController.openPlayer() {
 }
 
 private object Routes {
+    const val HOME = "home"
     const val CHANNEL_DETAIL = "channel/{channelId}"
     const val WATCHLIST_DETAIL = "watchlist/{watchlistId}"
     const val NOW_PLAYING = "now_playing"
@@ -150,6 +143,12 @@ private object Routes {
     fun watchlistDetail(watchlistId: Long) = "watchlist/$watchlistId"
 }
 
+/** Pushed sub-screens keep their tab highlighted; add any new sub-screen here. */
+private val subscreenParents = mapOf(
+    Routes.CHANNEL_DETAIL to Tab.Channels,
+    Routes.WATCHLIST_DETAIL to Tab.Watchlists,
+)
+
 @UnstableApi
 @Composable
 fun AppRoot(openPlayerRequests: Int = 0) {
@@ -158,6 +157,28 @@ fun AppRoot(openPlayerRequests: Int = 0) {
     val currentDestination = backStackEntry?.destination
     val onVideoScreen = currentDestination?.route == Routes.VIDEO
     val onPlayer = currentDestination?.route == Routes.NOW_PLAYING
+    val onHome = currentDestination?.route == Routes.HOME
+
+    // The three tabs are pages of one pager on the home route, so the page is the selection.
+    // Hoisted here because the bar and switchTab both drive it, and so it outlives the home
+    // entry's composition while a sub-screen or the player is on top.
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val scope = rememberCoroutineScope()
+
+    /**
+     * Shows a tab's root. From a pushed route the pager is not on screen, so the page changes
+     * instantly under the pop transition — which is also how tapping a sub-screen's own tab gets
+     * back to its list. On home it scrolls, the same motion a swipe produces.
+     */
+    fun switchTab(tab: Tab) {
+        val page = tabs.indexOf(tab)
+        if (onHome) {
+            scope.launch { pagerState.animateScrollToPage(page) }
+        } else {
+            navController.popBackStack(Routes.HOME, inclusive = false)
+            scope.launch { pagerState.scrollToPage(page) }
+        }
+    }
 
     val playerViewModel = sharedPlayerViewModel()
     val playerState by playerViewModel.uiState.collectAsStateWithLifecycle()
@@ -165,12 +186,10 @@ fun AppRoot(openPlayerRequests: Int = 0) {
     // second, competing animation on a subtree that was being removed anyway.
     val showMiniPlayer = playerState.hasItem
 
-    val liveTab = tabs.firstOrNull { tab ->
-        currentDestination?.hierarchy?.any { it.route == tab.route } == true
-    }?.route
-    // Held a frame behind, so the bar keeps whatever selection it had while it collapses —
-    // including no selection at all, which is what the detail screens show.
-    val frozenTab = remember { mutableStateOf<String?>(null) }
+    val liveTab =
+        if (onHome) tabs[pagerState.currentPage] else subscreenParents[currentDestination?.route]
+    // Held a frame behind, so the bar keeps whatever selection it had while it collapses.
+    val frozenTab = remember { mutableStateOf<Tab?>(null) }
     LaunchedEffect(onPlayer, liveTab) {
         if (!onPlayer) frozenTab.value = liveTab
     }
@@ -221,8 +240,8 @@ fun AppRoot(openPlayerRequests: Int = 0) {
                         }
                     }
                     FloatingTabBar(
-                        isSelected = { tab -> tab.route == selectedTab },
-                        onSelect = { navController.switchTab(it.route) },
+                        isSelected = { tab -> tab == selectedTab },
+                        onSelect = ::switchTab,
                     )
                 }
             }
@@ -230,31 +249,28 @@ fun AppRoot(openPlayerRequests: Int = 0) {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Tab.Channels.route,
-            // Tabs crossfade: a horizontal slide between siblings reads as broken, because tab
-            // order carries no direction and the bottom bar stays put. Detail routes below
-            // override this with a slide, which does have a direction.
-            enterTransition = { fadeIn(tween(TAB_FADE_MS)) },
+            startDestination = Routes.HOME,
+            // Tabs are pages inside home and move with the finger, so nothing here animates a
+            // tab switch. This fade is home going under a pushed route and coming back; the
+            // detail routes below override it with a slide of their own.
+            enterTransition = { fadeIn(tween(ROUTE_FADE_MS)) },
             exitTransition = {
                 // The player rises over whatever you were looking at, so that screen has to
                 // outlast a 140ms fade or you see bare background through the gap.
                 if (targetState.destination.route == Routes.NOW_PLAYING) {
                     fadeOut(tween(PLAYER_MOTION_MS, easing = PlayerEasing))
                 } else {
-                    fadeOut(tween(TAB_FADE_MS))
+                    fadeOut(tween(ROUTE_FADE_MS))
                 }
             },
             modifier = Modifier
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding),
         ) {
-            composable(Tab.Channels.route) {
-                ChannelsScreen(
+            composable(Routes.HOME) {
+                HomePager(
+                    pagerState = pagerState,
                     onOpenChannel = { navController.navigate(Routes.channelDetail(it)) },
-                )
-            }
-            composable(Tab.Watchlists.route) {
-                WatchlistsScreen(
                     onOpenWatchlist = { navController.navigate(Routes.watchlistDetail(it)) },
                 )
             }
@@ -274,7 +290,7 @@ fun AppRoot(openPlayerRequests: Int = 0) {
             ) {
                 NowPlayingScreen(
                     onOpenVideo = { navController.navigate(Routes.VIDEO) },
-                    onBrowseChannels = { navController.switchTab(Tab.Channels.route) },
+                    onBrowseChannels = { switchTab(Tab.Channels) },
                     // Addressed to the player rather than "whatever is on top": the screen
                     // stays hit-testable through its 300ms exit, and two quick taps on the
                     // chevron were enough to pop the screen behind it as well.
@@ -283,8 +299,6 @@ fun AppRoot(openPlayerRequests: Int = 0) {
                     },
                 )
             }
-            composable(Tab.Settings.route) { SettingsScreen() }
-
             composable(
                 Routes.CHANNEL_DETAIL,
                 arguments = listOf(navArgument("channelId") { type = NavType.StringType }),
@@ -342,6 +356,40 @@ fun AppRoot(openPlayerRequests: Int = 0) {
             ) {
                 VideoPlayerScreen(onBack = { navController.popBackStack() })
             }
+        }
+    }
+}
+
+/**
+ * The three tabs side by side, swiped or scrolled to by the bar. Neighbours are kept composed
+ * so the first frame of a swipe is not spent building the next screen's view model; with three
+ * pages that means every tab is composed once and stays. Settings' effects therefore run while
+ * it is off screen, which is harmless — its only outward one, the install prompt, needs a
+ * download the user started from that page.
+ *
+ * Back from a later page returns to Channels rather than leaving the app, as the per-tab stacks
+ * did before. It also catches the edge swipe that gesture navigation turns into Back, which is
+ * otherwise indistinguishable from a swipe toward the first page.
+ */
+@Composable
+private fun HomePager(
+    pagerState: PagerState,
+    onOpenChannel: (String) -> Unit,
+    onOpenWatchlist: (Long) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    BackHandler(enabled = pagerState.settledPage != 0) {
+        scope.launch { pagerState.animateScrollToPage(0) }
+    }
+    HorizontalPager(
+        state = pagerState,
+        beyondViewportPageCount = 1,
+        modifier = Modifier.fillMaxSize(),
+    ) { page ->
+        when (tabs[page]) {
+            Tab.Channels -> ChannelsScreen(onOpenChannel = onOpenChannel)
+            Tab.Watchlists -> WatchlistsScreen(onOpenWatchlist = onOpenWatchlist)
+            Tab.Settings -> SettingsScreen()
         }
     }
 }
@@ -447,9 +495,9 @@ private fun FloatingTabBar(
                     label = "tabShare",
                 )
 
-                // Selecting the tab you are already on is not a no-op: switchTab pops that tab
-                // back to its start destination, which is how you get from a channel's uploads
-                // back to the channel list.
+                // From a sub-screen, selecting its highlighted tab pops back to the tab's root —
+                // how you get from a channel's uploads back to the channel list. On home, the
+                // tab you are already on is a no-op.
                 Row(
                     Modifier
                         .weight(share)
