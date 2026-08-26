@@ -51,6 +51,9 @@ and would silently return nothing. After that it re-checks once a day.
 
 ## Using it
 
+Swipe left or right anywhere on a tab's screen to move between Channels, Watchlists and
+Settings, or tap the bar at the bottom.
+
 **Add a channel** — Channels tab → **+** → paste an `@handle`, a channel URL, or a `UC…` ID.
 The app fetches the channel's most recent 100 uploads and caches them on the device.
 
