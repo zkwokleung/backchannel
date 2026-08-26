@@ -64,11 +64,17 @@ without the keep rules in `proguard-rules.pro`, R8 produces `class … is not a 
 init. The Python payloads (`lib*.zip.so`) must also stay unstripped — see `packaging.jniLibs`.
 Always smoke-test `assembleRelease` on a device, not just `assembleDebug`.
 
-**Navigation.** Bottom-nav tabs each keep their own back stack; use `switchTab` (not `navigate`)
-for anything that jumps between tabs, or the destination nests inside the wrong stack and
-saved-state restore bounces the user back to it. The player is deliberately not a tab — it is
-pushed over whatever you were doing (`openPlayer`), so leaving it is a plain `popBackStack` that
-lands back where you came from rather than on a tab's start destination.
+**Navigation.** The three tabs are pages of one `HorizontalPager` on the `home` route, so the
+pager's page is the selection and a swipe or a tab tap shows that tab's root — tabs no longer
+keep separate back stacks. Use `switchTab` (not `navigate`) for anything that jumps to a tab:
+from a pushed route it pops back to `home` first and sets the page under the pop transition.
+System Back on a later page returns to Channels (`BackHandler` in `HomePager`), which also
+absorbs the edge swipe gesture navigation turns into Back. The player is deliberately not a tab —
+it is pushed over whatever you were doing (`openPlayer`), so leaving it is a plain `popBackStack`
+that lands back on the page you came from. Pushed sub-screens (channel and watchlist detail) are
+graph siblings of `home`, so `subscreenParents` in `AppRoot.kt` maps each one to its tab to keep
+that tab highlighted — add any new sub-screen there. Tapping the highlighted tab from a
+sub-screen pops back to the tab's root.
 
 **Release asset names are an API.** The in-app updater (`update/`) finds its download by parsing
 the filenames `release.yml` stages:
