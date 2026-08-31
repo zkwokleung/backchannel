@@ -2,8 +2,12 @@ package com.zkwokleung.backchannel.engine
 
 import android.content.Context
 import android.util.Log
+import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.zkwokleung.backchannel.download.DownloadCancelledException
+import com.zkwokleung.backchannel.download.DownloadFailure
+import com.zkwokleung.backchannel.download.MediaDownloader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,10 +17,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 
 /**
  * On-device yt-dlp. All calls are suspend functions on [dispatcher]; results are parsed
@@ -26,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap
 class YtdlpEngine(
     private val appContext: Context,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : ChannelSource {
+) : ChannelSource, MediaDownloader {
     sealed interface InitState {
         data object NotStarted : InitState
         data object Initializing : InitState
@@ -43,6 +49,10 @@ class YtdlpEngine(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val streamCache = ConcurrentHashMap<String, ResolvedStream>()
 
+    /** ffmpeg only muxes video downloads; streaming and audio saves work without it. */
+    @Volatile
+    private var ffmpegReady = false
+
     /** Idempotent; safe to call from multiple places. */
     suspend fun initialize(): InitState = initMutex.withLock {
         val current = _initState.value
@@ -51,6 +61,9 @@ class YtdlpEngine(
         return withContext(dispatcher) {
             try {
                 YoutubeDL.getInstance().init(appContext)
+                ffmpegReady = runCatching { FFmpeg.getInstance().init(appContext) }
+                    .onFailure { Log.w(TAG, "ffmpeg init failed; video downloads disabled", it) }
+                    .isSuccess
                 val ready = InitState.Ready(currentVersion())
                 _initState.value = ready
                 Log.i(TAG, "yt-dlp ready, version=${ready.ytdlpVersion}")
@@ -266,6 +279,65 @@ class YtdlpEngine(
         val parsed = parse<YtPlaylistJson>(raw, "playlist $url")
         Log.i(TAG, "flat playlist $url -> ${raw.length} chars, ${parsed.entries.size} entries")
         return parsed
+    }
+
+    // ── Downloads ─────────────────────────────────────────────────────────────
+
+    override suspend fun download(
+        videoId: String,
+        mode: StreamMode,
+        targetDir: File,
+        processId: String,
+        onProgress: (percent: Int, etaSeconds: Long) -> Unit,
+    ): File = withContext(dispatcher) {
+        requireFreshEngine()
+        if (mode == StreamMode.VIDEO && !ffmpegReady) {
+            throw EngineException(DownloadFailure.VideoToolsUnavailable.message)
+        }
+        targetDir.mkdirs()
+        val request = YoutubeDLRequest(watchUrl(videoId)).apply {
+            addOption("--no-warnings")
+            addOption("--ignore-config")
+            addOption("--no-playlist")
+            addOption("--force-overwrites")
+            addOption("--retries", 3)
+            addOption("--fragment-retries", 3)
+            addOption("-f", if (mode == StreamMode.VIDEO) VIDEO_FORMAT else AUDIO_FORMAT)
+            if (mode == StreamMode.VIDEO) addOption("--merge-output-format", "mp4")
+            addOption("-o", File(targetDir, "$videoId.%(ext)s").path)
+            addOption("--print", "after_move:filepath")
+        }
+        val response = try {
+            YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
+                onProgress(progress.roundToInt(), eta)
+            }
+        } catch (e: YoutubeDL.CanceledException) {
+            throw DownloadCancelledException()
+        } catch (t: Throwable) {
+            Log.e(TAG, "yt-dlp download failed for $videoId", t)
+            throw EngineException(friendlyMessage(t.message), t)
+        }
+        if (response.err.isNotBlank()) {
+            Log.w(TAG, "yt-dlp stderr for download $videoId: ${response.err.take(500)}")
+        }
+        finishedFile(response.out, targetDir, videoId)
+            ?: throw EngineException("The download finished but no file was produced.")
+    }
+
+    override fun cancelDownload(processId: String): Boolean =
+        YoutubeDL.getInstance().destroyProcessById(processId)
+
+    /**
+     * `--print after_move:filepath` is the last stdout line, but progress lines share that
+     * stream, so fall back to the largest finished file with the video's prefix.
+     */
+    private fun finishedFile(stdout: String, targetDir: File, videoId: String): File? {
+        val printed = stdout.lineSequence().map { it.trim() }.lastOrNull { it.isNotEmpty() }
+            ?.let(::File)
+        if (printed != null && printed.isFile && printed.parentFile == targetDir) return printed
+        return targetDir.listFiles { file ->
+            file.name.substringBefore('.') == videoId && !file.name.endsWith(".part")
+        }?.maxByOrNull { it.length() }
     }
 
     private suspend fun execute(
