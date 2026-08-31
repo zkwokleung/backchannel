@@ -3,6 +3,7 @@ package com.zkwokleung.backchannel.data.db
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.zkwokleung.backchannel.engine.StreamMode
 
 @Entity(tableName = "channels")
 data class ChannelEntity(
@@ -69,4 +70,31 @@ data class PlaybackStateEntity(
     val durationMillis: Long?,
     val completed: Boolean,
     val updatedAt: Long,
+)
+
+enum class DownloadStatus { QUEUED, DOWNLOADING, COMPLETE, FAILED }
+
+/**
+ * A saved copy of a video's media. Snapshots title/thumbnail/duration/channel like
+ * [WatchlistItemEntity] so the download outlives channel-cache refreshes and channel removal.
+ * One row per video: saving in another mode replaces the previous file.
+ */
+@Entity(
+    tableName = "downloads",
+    indices = [Index("status")],
+)
+data class DownloadEntity(
+    @PrimaryKey val videoYoutubeId: String,
+    val mode: StreamMode,
+    val status: DownloadStatus,
+    val title: String,
+    val channelTitle: String?,
+    val thumbnail: String?,
+    val durationSeconds: Long?,
+    val filePath: String?,
+    val sizeBytes: Long,
+    val progressPercent: Int,
+    val error: String?,
+    val createdAt: Long,
+    val completedAt: Long?,
 )

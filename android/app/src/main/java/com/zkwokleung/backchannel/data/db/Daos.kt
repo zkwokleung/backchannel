@@ -128,3 +128,60 @@ interface PlaybackDao {
     @Query("SELECT * FROM playback_states")
     fun observeAll(): Flow<List<PlaybackStateEntity>>
 }
+
+@Dao
+interface DownloadDao {
+    @Upsert
+    suspend fun upsert(download: DownloadEntity)
+
+    @Query("SELECT * FROM downloads ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM downloads WHERE videoYoutubeId = :videoYoutubeId")
+    fun observe(videoYoutubeId: String): Flow<DownloadEntity?>
+
+    @Query("SELECT * FROM downloads WHERE videoYoutubeId = :videoYoutubeId")
+    suspend fun get(videoYoutubeId: String): DownloadEntity?
+
+    @Query("SELECT * FROM downloads")
+    suspend fun getAll(): List<DownloadEntity>
+
+    @Query(
+        "SELECT * FROM downloads WHERE status IN ('QUEUED', 'DOWNLOADING') ORDER BY createdAt ASC LIMIT 1"
+    )
+    suspend fun nextPending(): DownloadEntity?
+
+    @Query("SELECT COALESCE(SUM(sizeBytes), 0) FROM downloads WHERE status = 'COMPLETE'")
+    fun observeTotalBytes(): Flow<Long>
+
+    @Query(
+        "UPDATE downloads SET status = :status, progressPercent = 0, error = NULL " +
+            "WHERE videoYoutubeId = :videoYoutubeId"
+    )
+    suspend fun setStatus(videoYoutubeId: String, status: DownloadStatus)
+
+    @Query("UPDATE downloads SET status = 'QUEUED', progressPercent = 0 WHERE status = 'DOWNLOADING'")
+    suspend fun requeueInterrupted()
+
+    @Query("UPDATE downloads SET progressPercent = :percent WHERE videoYoutubeId = :videoYoutubeId")
+    suspend fun updateProgress(videoYoutubeId: String, percent: Int)
+
+    @Query(
+        "UPDATE downloads SET status = 'COMPLETE', filePath = :filePath, sizeBytes = :sizeBytes, " +
+            "progressPercent = 100, error = NULL, completedAt = :completedAt " +
+            "WHERE videoYoutubeId = :videoYoutubeId"
+    )
+    suspend fun markComplete(videoYoutubeId: String, filePath: String, sizeBytes: Long, completedAt: Long)
+
+    @Query(
+        "UPDATE downloads SET status = 'FAILED', filePath = NULL, sizeBytes = 0, error = :error " +
+            "WHERE videoYoutubeId = :videoYoutubeId"
+    )
+    suspend fun markFailed(videoYoutubeId: String, error: String)
+
+    @Query("DELETE FROM downloads WHERE videoYoutubeId = :videoYoutubeId")
+    suspend fun delete(videoYoutubeId: String)
+
+    @Query("DELETE FROM downloads")
+    suspend fun deleteAll()
+}

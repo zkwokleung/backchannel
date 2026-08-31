@@ -1,6 +1,7 @@
 package com.zkwokleung.backchannel.data.db
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -12,8 +13,10 @@ import androidx.room.RoomDatabase
         WatchlistEntity::class,
         WatchlistItemEntity::class,
         PlaybackStateEntity::class,
+        DownloadEntity::class,
     ],
-    version = 1,
+    version = 2,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
     exportSchema = true,
 )
 abstract class BackchannelDatabase : RoomDatabase() {
@@ -21,6 +24,7 @@ abstract class BackchannelDatabase : RoomDatabase() {
     abstract fun videoDao(): VideoDao
     abstract fun watchlistDao(): WatchlistDao
     abstract fun playbackDao(): PlaybackDao
+    abstract fun downloadDao(): DownloadDao
 
     companion object {
         fun build(context: Context): BackchannelDatabase =
