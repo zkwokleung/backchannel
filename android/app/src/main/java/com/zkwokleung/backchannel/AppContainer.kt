@@ -2,9 +2,11 @@ package com.zkwokleung.backchannel
 
 import android.content.Context
 import com.zkwokleung.backchannel.data.ChannelRepository
+import com.zkwokleung.backchannel.data.DownloadRepository
 import com.zkwokleung.backchannel.data.PlaybackRepository
 import com.zkwokleung.backchannel.data.WatchlistRepository
 import com.zkwokleung.backchannel.data.db.BackchannelDatabase
+import com.zkwokleung.backchannel.download.DownloadManager
 import com.zkwokleung.backchannel.engine.YtdlpEngine
 import com.zkwokleung.backchannel.playback.PlayerConnection
 import com.zkwokleung.backchannel.playback.QueuePlayer
@@ -14,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /** Manual dependency container shared by activities and services. */
@@ -28,6 +31,11 @@ class AppContainer(context: Context) {
     val channelRepository = ChannelRepository(engine, database.channelDao(), database.videoDao())
     val watchlistRepository = WatchlistRepository(database.watchlistDao())
     val playbackRepository = PlaybackRepository(database.playbackDao())
+    val downloadRepository = DownloadRepository(
+        database.downloadDao(),
+        File(context.applicationContext.filesDir, "downloads"),
+        applicationScope,
+    )
 
     val playerConnection = PlayerConnection(context.applicationContext)
     val queuePlayer = QueuePlayer(playerConnection, playbackRepository, applicationScope)
@@ -43,12 +51,17 @@ class AppContainer(context: Context) {
 
     val appUpdater = AppUpdater(context.applicationContext, httpClient, applicationScope)
 
+    val downloadManager =
+        DownloadManager(context.applicationContext, downloadRepository, engine, queuePlayer, applicationScope)
+
     init {
         // Warm the runtime and refresh yt-dlp early so the first extraction is fast and works
         // against current YouTube (the shipped binary lags and extracts nothing).
         applicationScope.launch {
             engine.initialize()
             engine.updateIfDue()
+            // After the refresh so an interrupted queue restarts against a binary that works.
+            downloadManager.resumeOnLaunch()
         }
         // A separate launch, deliberately: the daily app-update check should not queue behind a
         // multi-megabyte yt-dlp refresh.

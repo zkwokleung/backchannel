@@ -50,6 +50,27 @@ class QueuePlayer(
         }
     }
 
+    /**
+     * Re-prepares the current item in place so the media-source factory runs again — used when
+     * its saved file is deleted mid-play. [videoId] null means whatever is current. Reads the
+     * existing controller only: nothing playing means nothing to do, and connecting here would
+     * needlessly start the playback service.
+     */
+    fun reloadItem(videoId: String?) {
+        scope.launch(Dispatchers.Main) {
+            val controller = connection.controller.value ?: return@launch
+            val index = controller.currentMediaItemIndex
+            val item = controller.currentMediaItem ?: return@launch
+            if (videoId != null && item.mediaId != videoId) return@launch
+            val position = controller.currentPosition
+            val resume = controller.playWhenReady
+            controller.replaceMediaItem(index, item)
+            controller.seekTo(index, position)
+            controller.prepare()
+            controller.playWhenReady = resume
+        }
+    }
+
     /** Switches the current item between audio and video streams, keeping position. */
     fun switchMode(mode: StreamMode) {
         scope.launch {
