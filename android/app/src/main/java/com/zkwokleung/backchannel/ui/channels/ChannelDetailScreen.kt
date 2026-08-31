@@ -56,7 +56,12 @@ import com.zkwokleung.backchannel.data.db.WatchlistEntity
 import com.zkwokleung.backchannel.engine.StreamMode
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.draw.alpha
+import com.zkwokleung.backchannel.ui.common.DownloadMenuItems
+import com.zkwokleung.backchannel.ui.common.DownloadProgressOverlay
+import com.zkwokleung.backchannel.ui.common.DownloadStateUi
+import com.zkwokleung.backchannel.ui.common.DownloadedBadge
 import com.zkwokleung.backchannel.ui.common.EmptyState
+import com.zkwokleung.backchannel.ui.common.rememberDownloadAction
 import com.zkwokleung.backchannel.ui.common.EqualizerIndicator
 import com.zkwokleung.backchannel.ui.common.MediaRow
 import com.zkwokleung.backchannel.ui.common.PlaybackProgressUi
@@ -79,9 +84,12 @@ fun ChannelDetailScreen(
             it.channelRepository,
             it.watchlistRepository,
             it.playbackRepository,
+            it.downloadRepository,
+            it.downloadManager,
             it.queuePlayer,
         )
     }
+    val requestDownload = rememberDownloadAction()
     val channel by viewModel.channel.collectAsState()
     val rows by viewModel.rows.collectAsState()
     val playerState by sharedPlayerViewModel().uiState.collectAsState()
@@ -142,6 +150,7 @@ fun ChannelDetailScreen(
                         VideoRow(
                             video = video,
                             progress = row.progress,
+                            download = row.download,
                             isCurrent = playerState.mediaId == video.youtubeId,
                             isPlaying = playerState.isPlaying,
                             onPlayAudio = {
@@ -153,6 +162,9 @@ fun ChannelDetailScreen(
                                 onOpenVideo()
                             },
                             onAddToWatchlist = { watchlistTarget = video },
+                            onDownload = { mode -> requestDownload { viewModel.download(video, mode) } },
+                            onCancelDownload = { viewModel.cancelDownload(video) },
+                            onRemoveDownload = { viewModel.removeDownload(video) },
                         )
                     }
                 }
@@ -180,11 +192,15 @@ fun ChannelDetailScreen(
 private fun VideoRow(
     video: VideoEntity,
     progress: PlaybackProgressUi,
+    download: DownloadStateUi,
     isCurrent: Boolean,
     isPlaying: Boolean,
     onPlayAudio: () -> Unit,
     onPlayVideo: () -> Unit,
     onAddToWatchlist: () -> Unit,
+    onDownload: (StreamMode) -> Unit,
+    onCancelDownload: () -> Unit,
+    onRemoveDownload: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val played = progress is PlaybackProgressUi.Played
@@ -194,6 +210,7 @@ private fun VideoRow(
         subtitle = listOfNotNull(
             formatDuration(video.durationSeconds),
             "Played".takeIf { played },
+            download.label(),
         ).joinToString(" · "),
         titleColor = if (played && !isCurrent) {
             MaterialTheme.colorScheme.onSurfaceVariant
@@ -203,16 +220,21 @@ private fun VideoRow(
             MaterialTheme.colorScheme.onSurface
         },
         highlighted = isCurrent,
-        badge = if (isCurrent) {
-            { EqualizerIndicator(playing = isPlaying) }
-        } else {
-            null
+        badge = when {
+            isCurrent -> {
+                { EqualizerIndicator(playing = isPlaying) }
+            }
+            download is DownloadStateUi.Downloaded -> {
+                { DownloadedBadge() }
+            }
+            else -> null
         },
         leading = {
             Thumbnail(
                 model = video.thumbnail,
                 modifier = Modifier.alpha(if (played) 0.45f else 1f),
             ) {
+                DownloadProgressOverlay(download)
                 // Resume progress sits on the thumbnail's bottom edge, costing no row height.
                 if (progress is PlaybackProgressUi.InProgress) {
                     LinearProgressIndicator(
@@ -250,6 +272,13 @@ private fun VideoRow(
                         text = { Text("Add to watchlist") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) },
                         onClick = { menuOpen = false; onAddToWatchlist() },
+                    )
+                    DownloadMenuItems(
+                        state = download,
+                        onDownload = onDownload,
+                        onCancel = onCancelDownload,
+                        onRemove = onRemoveDownload,
+                        dismiss = { menuOpen = false },
                     )
                 }
             }

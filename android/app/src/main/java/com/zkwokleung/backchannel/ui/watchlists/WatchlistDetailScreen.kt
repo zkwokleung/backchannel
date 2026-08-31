@@ -37,6 +37,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.zkwokleung.backchannel.data.db.WatchlistItemEntity
+import com.zkwokleung.backchannel.ui.common.DownloadMenuItems
+import com.zkwokleung.backchannel.ui.common.DownloadProgressOverlay
+import com.zkwokleung.backchannel.ui.common.DownloadStateUi
+import com.zkwokleung.backchannel.ui.common.DownloadedBadge
+import com.zkwokleung.backchannel.ui.common.rememberDownloadAction
 import com.zkwokleung.backchannel.engine.StreamMode
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -70,8 +75,16 @@ fun WatchlistDetailScreen(
     onOpenVideo: () -> Unit,
 ) {
     val viewModel = appViewModel {
-        WatchlistDetailViewModel(watchlistId, it.watchlistRepository, it.playbackRepository, it.queuePlayer)
+        WatchlistDetailViewModel(
+            watchlistId,
+            it.watchlistRepository,
+            it.playbackRepository,
+            it.downloadRepository,
+            it.downloadManager,
+            it.queuePlayer,
+        )
     }
+    val requestDownload = rememberDownloadAction()
     val watchlist by viewModel.watchlist.collectAsState()
     val rows by viewModel.rows.collectAsState()
     val playerState by sharedPlayerViewModel().uiState.collectAsState()
@@ -107,6 +120,7 @@ fun WatchlistDetailScreen(
                     WatchlistItemRow(
                         item = item,
                         progress = row.progress,
+                        download = row.download,
                         isCurrent = playerState.mediaId == item.videoYoutubeId,
                         isPlaying = playerState.isPlaying,
                         canMoveUp = index > 0,
@@ -122,6 +136,9 @@ fun WatchlistDetailScreen(
                         onMoveUp = { viewModel.move(item, up = true) },
                         onMoveDown = { viewModel.move(item, up = false) },
                         onRemove = { viewModel.remove(item) },
+                        onDownload = { mode -> requestDownload { viewModel.download(item, mode) } },
+                        onCancelDownload = { viewModel.cancelDownload(item) },
+                        onRemoveDownload = { viewModel.removeDownload(item) },
                     )
                 }
             }
@@ -133,6 +150,7 @@ fun WatchlistDetailScreen(
 private fun WatchlistItemRow(
     item: WatchlistItemEntity,
     progress: PlaybackProgressUi,
+    download: DownloadStateUi,
     isCurrent: Boolean,
     isPlaying: Boolean,
     canMoveUp: Boolean,
@@ -142,6 +160,9 @@ private fun WatchlistItemRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
+    onDownload: (StreamMode) -> Unit,
+    onCancelDownload: () -> Unit,
+    onRemoveDownload: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val played = progress is PlaybackProgressUi.Played
@@ -152,6 +173,7 @@ private fun WatchlistItemRow(
             item.channelTitle,
             formatDuration(item.durationSeconds),
             "Played".takeIf { played },
+            download.label(),
         ).joinToString(" · "),
         titleColor = when {
             isCurrent -> MaterialTheme.colorScheme.primary
@@ -159,16 +181,21 @@ private fun WatchlistItemRow(
             else -> MaterialTheme.colorScheme.onSurface
         },
         highlighted = isCurrent,
-        badge = if (isCurrent) {
-            { EqualizerIndicator(playing = isPlaying) }
-        } else {
-            null
+        badge = when {
+            isCurrent -> {
+                { EqualizerIndicator(playing = isPlaying) }
+            }
+            download is DownloadStateUi.Downloaded -> {
+                { DownloadedBadge() }
+            }
+            else -> null
         },
         leading = {
             Thumbnail(
                 model = item.thumbnail,
                 modifier = Modifier.alpha(if (played) 0.45f else 1f),
             ) {
+                DownloadProgressOverlay(download)
                 if (progress is PlaybackProgressUi.InProgress) {
                     LinearProgressIndicator(
                         progress = { progress.fraction },
@@ -214,6 +241,13 @@ private fun WatchlistItemRow(
                         leadingIcon = { Icon(Icons.Filled.KeyboardArrowDown, null) },
                         enabled = canMoveDown,
                         onClick = { menuOpen = false; onMoveDown() },
+                    )
+                    DownloadMenuItems(
+                        state = download,
+                        onDownload = onDownload,
+                        onCancel = onCancelDownload,
+                        onRemove = onRemoveDownload,
+                        dismiss = { menuOpen = false },
                     )
                     DropdownMenuItem(
                         text = { Text("Remove") },

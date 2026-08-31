@@ -76,6 +76,7 @@ import com.zkwokleung.backchannel.ui.channels.ChannelDetailScreen
 import com.zkwokleung.backchannel.ui.channels.ChannelsScreen
 import com.zkwokleung.backchannel.ui.player.MiniPlayer
 import com.zkwokleung.backchannel.ui.player.NowPlayingScreen
+import com.zkwokleung.backchannel.ui.downloads.DownloadsScreen
 import com.zkwokleung.backchannel.ui.player.sharedPlayerViewModel
 import com.zkwokleung.backchannel.ui.player.VideoPlayerScreen
 import com.zkwokleung.backchannel.ui.settings.SettingsScreen
@@ -138,6 +139,7 @@ private object Routes {
     const val WATCHLIST_DETAIL = "watchlist/{watchlistId}"
     const val NOW_PLAYING = "now_playing"
     const val VIDEO = "video"
+    const val DOWNLOADS = "downloads"
 
     fun channelDetail(channelId: String) = "channel/$channelId"
     fun watchlistDetail(watchlistId: Long) = "watchlist/$watchlistId"
@@ -147,6 +149,7 @@ private object Routes {
 private val subscreenParents = mapOf(
     Routes.CHANNEL_DETAIL to Tab.Channels,
     Routes.WATCHLIST_DETAIL to Tab.Watchlists,
+    Routes.DOWNLOADS to Tab.Settings,
 )
 
 @UnstableApi
@@ -272,6 +275,7 @@ fun AppRoot(openPlayerRequests: Int = 0) {
                     pagerState = pagerState,
                     onOpenChannel = { navController.navigate(Routes.channelDetail(it)) },
                     onOpenWatchlist = { navController.navigate(Routes.watchlistDetail(it)) },
+                    onOpenDownloads = { navController.navigate(Routes.DOWNLOADS) },
                 )
             }
             composable(
@@ -344,6 +348,25 @@ fun AppRoot(openPlayerRequests: Int = 0) {
                 )
             }
             composable(
+                Routes.DOWNLOADS,
+                enterTransition = {
+                    slideInHorizontally(initialOffsetX = { it / 6 }, animationSpec = tween(260)) +
+                        fadeIn(tween(180))
+                },
+                exitTransition = { fadeOut(tween(120)) },
+                popEnterTransition = { fadeIn(tween(180)) },
+                popExitTransition = {
+                    slideOutHorizontally(targetOffsetX = { it / 6 }, animationSpec = tween(220)) +
+                        fadeOut(tween(160))
+                },
+            ) {
+                DownloadsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenNowPlaying = { navController.openPlayer() },
+                    onOpenVideo = { navController.navigate(Routes.VIDEO) },
+                )
+            }
+            composable(
                 Routes.VIDEO,
                 enterTransition = {
                     slideInVertically(initialOffsetY = { it / 4 }, animationSpec = tween(240)) +
@@ -376,6 +399,7 @@ private fun HomePager(
     pagerState: PagerState,
     onOpenChannel: (String) -> Unit,
     onOpenWatchlist: (Long) -> Unit,
+    onOpenDownloads: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     BackHandler(enabled = pagerState.settledPage != 0) {
@@ -389,7 +413,7 @@ private fun HomePager(
         when (tabs[page]) {
             Tab.Channels -> ChannelsScreen(onOpenChannel = onOpenChannel)
             Tab.Watchlists -> WatchlistsScreen(onOpenWatchlist = onOpenWatchlist)
-            Tab.Settings -> SettingsScreen()
+            Tab.Settings -> SettingsScreen(onOpenDownloads = onOpenDownloads)
         }
     }
 }

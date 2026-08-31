@@ -11,6 +11,10 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.zkwokleung.backchannel.AppContainer
 import com.zkwokleung.backchannel.appContainer
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
 
 @Composable
@@ -67,9 +71,18 @@ fun formatDuration(seconds: Long?): String {
 
 fun formatMillis(millis: Long): String = formatDuration(millis / 1000)
 
-/** Download sizes, in the MB most people think in. Returns null when the size is unknown. */
+/** File sizes, in the MB most people think in. Returns null when the size is unknown. */
 fun formatBytes(bytes: Long): String? = when {
     bytes <= 0 -> null
     bytes < 1024 * 1024 -> String.format(Locale.US, "%d KB", bytes / 1024)
-    else -> String.format(Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+    bytes < 1024L * 1024 * 1024 -> String.format(Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+    else -> String.format(Locale.US, "%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
 }
+
+fun formatDate(
+    epochMillis: Long,
+    zone: ZoneId = ZoneId.systemDefault(),
+    locale: Locale = Locale.getDefault(),
+): String = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+    .withLocale(locale)
+    .format(Instant.ofEpochMilli(epochMillis).atZone(zone))

@@ -16,10 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -54,30 +58,35 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.zkwokleung.backchannel.R
 import com.zkwokleung.backchannel.engine.YtdlpEngine
 import com.zkwokleung.backchannel.ui.common.appViewModel
+import com.zkwokleung.backchannel.ui.common.formatBytes
 import com.zkwokleung.backchannel.ui.theme.Spacing
 import com.zkwokleung.backchannel.update.AppUpdater
 import com.zkwokleung.backchannel.update.AvailableUpdate
 
 /**
- * Four controls and a footer.
+ * Six controls and a footer.
  *
- * Deliberately has no section headers: with one row per domain they label rather than group, and
- * leading icons carry the same information in less space. Add headers back when a section holds
- * two or more rows.
+ * Only Downloads gets a section header: it is the one domain with two rows, and with a single row
+ * per domain a header would label rather than group — leading icons carry the same information
+ * in less space.
  *
  * Explanations live where they are needed — in the error messages that tell you to update yt-dlp,
  * and in docs/USAGE.md — not as permanent paragraphs under every row.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
-    val viewModel = appViewModel { SettingsViewModel(it.engine, it.appUpdater) }
+fun SettingsScreen(onOpenDownloads: () -> Unit) {
+    val viewModel = appViewModel {
+        SettingsViewModel(it.engine, it.appUpdater, it.downloadRepository, it.downloadManager)
+    }
     val initState by viewModel.initState.collectAsState()
     val engineUpdate by viewModel.engineUpdate.collectAsState()
     val appUpdate by viewModel.appUpdate.collectAsState()
+    val downloads by viewModel.downloads.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
 
     LaunchedEffect(engineUpdate.message) {
         engineUpdate.message?.let {
@@ -105,6 +114,34 @@ fun SettingsScreen() {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (confirmDeleteAll) {
+        val size = formatBytes(downloads.bytes)
+        AlertDialog(
+            onDismissRequest = { confirmDeleteAll = false },
+            title = { Text("Delete all downloads?") },
+            text = {
+                Text(
+                    buildString {
+                        append("Every saved copy will be removed from this device")
+                        if (size != null) append(", freeing $size")
+                        append(". This can't be undone. Watchlists and playback history are kept.")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteAllDownloads()
+                        confirmDeleteAll = false
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") }
+            },
+        )
     }
 
     pendingUpdate?.let { update ->
@@ -184,6 +221,49 @@ fun SettingsScreen() {
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
+            Text(
+                text = "Downloads",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.lg, top = Spacing.md),
+            )
+
+            LinkRow(
+                icon = Icons.Rounded.Download,
+                title = "Saved for offline",
+                subtitle = when {
+                    downloads.isEmpty -> "Nothing saved yet"
+                    else -> listOfNotNull(
+                        "${downloads.count} ${if (downloads.count == 1) "item" else "items"}",
+                        formatBytes(downloads.bytes),
+                    ).joinToString(" · ")
+                },
+                trailingIcon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                onClick = onOpenDownloads,
+            )
+
+            ListItem(
+                leadingContent = {
+                    Icon(
+                        Icons.Rounded.DeleteSweep,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                headlineContent = { Text("Delete all downloads") },
+                supportingContent = {
+                    Text(formatBytes(downloads.bytes)?.let { "Frees $it" } ?: "Nothing to delete")
+                },
+                trailingContent = {
+                    TextButton(
+                        onClick = { confirmDeleteAll = true },
+                        enabled = !downloads.isEmpty,
+                    ) { Text("Delete all") }
+                },
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
             LinkRow(
                 icon = Icons.Rounded.Code,
                 title = "Source code",
@@ -255,6 +335,7 @@ private fun LinkRow(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    trailingIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.AutoMirrored.Rounded.OpenInNew,
 ) {
     ListItem(
         modifier = Modifier.clickable(onClick = onClick, onClickLabel = title),
@@ -265,7 +346,7 @@ private fun LinkRow(
         supportingContent = { Text(subtitle) },
         trailingContent = {
             Icon(
-                Icons.AutoMirrored.Rounded.OpenInNew,
+                trailingIcon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),

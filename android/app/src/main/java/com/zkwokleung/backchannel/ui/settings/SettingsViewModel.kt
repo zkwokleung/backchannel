@@ -2,11 +2,18 @@ package com.zkwokleung.backchannel.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zkwokleung.backchannel.data.DownloadRepository
+import com.zkwokleung.backchannel.data.db.DownloadStatus
+import com.zkwokleung.backchannel.download.DownloadManager
 import com.zkwokleung.backchannel.engine.YtdlpEngine
 import com.zkwokleung.backchannel.update.AppUpdater
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class EngineUpdateUiState(
@@ -14,10 +21,28 @@ data class EngineUpdateUiState(
     val message: String? = null,
 )
 
+/** What the Downloads rows say: how many finished copies exist and what they weigh. */
+data class DownloadsSummary(val count: Int = 0, val bytes: Long = 0) {
+    val isEmpty: Boolean get() = count == 0
+}
+
 class SettingsViewModel(
     private val engine: YtdlpEngine,
     private val updater: AppUpdater,
+    downloadRepository: DownloadRepository,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
+
+    val downloads: StateFlow<DownloadsSummary> = downloadRepository.observeAll()
+        .map { rows ->
+            val complete = rows.filter { it.status == DownloadStatus.COMPLETE }
+            DownloadsSummary(complete.size, complete.sumOf { it.sizeBytes })
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadsSummary())
+
+    /** Runs on the application scope inside DownloadManager, like the app updater below. */
+    fun deleteAllDownloads() = downloadManager.removeAll()
 
     val initState: StateFlow<YtdlpEngine.InitState> = engine.initState
 

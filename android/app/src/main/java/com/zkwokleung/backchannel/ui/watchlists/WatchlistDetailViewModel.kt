@@ -2,13 +2,17 @@ package com.zkwokleung.backchannel.ui.watchlists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zkwokleung.backchannel.data.DownloadRepository
+import com.zkwokleung.backchannel.data.DownloadRequest
 import com.zkwokleung.backchannel.data.PlaybackRepository
 import com.zkwokleung.backchannel.data.WatchlistRepository
 import com.zkwokleung.backchannel.data.db.WatchlistEntity
 import com.zkwokleung.backchannel.data.db.WatchlistItemEntity
+import com.zkwokleung.backchannel.download.DownloadManager
 import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.playback.QueueEntry
 import com.zkwokleung.backchannel.playback.QueuePlayer
+import com.zkwokleung.backchannel.ui.common.DownloadStateUi
 import com.zkwokleung.backchannel.ui.common.PlaybackProgressUi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -17,16 +21,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** A queued item plus how far through it the listener already is. */
+/** A queued item plus how far through it the listener already is, and its saved copy. */
 data class WatchlistRowUi(
     val item: WatchlistItemEntity,
     val progress: PlaybackProgressUi,
+    val download: DownloadStateUi,
 )
 
 class WatchlistDetailViewModel(
     private val watchlistId: Long,
     private val repository: WatchlistRepository,
     private val playbackRepository: PlaybackRepository,
+    private val downloadRepository: DownloadRepository,
+    private val downloadManager: DownloadManager,
     private val queuePlayer: QueuePlayer,
 ) : ViewModel() {
 
@@ -36,10 +43,16 @@ class WatchlistDetailViewModel(
     val rows: StateFlow<List<WatchlistRowUi>> = combine(
         repository.observeItems(watchlistId),
         playbackRepository.observeAll(),
-    ) { items, states ->
+        downloadRepository.observeAll(),
+    ) { items, states, downloads ->
         val byId = states.associateBy { it.videoYoutubeId }
+        val downloadById = downloads.associateBy { it.videoYoutubeId }
         items.map { item ->
-            WatchlistRowUi(item, PlaybackProgressUi.of(byId[item.videoYoutubeId], item.durationSeconds))
+            WatchlistRowUi(
+                item,
+                PlaybackProgressUi.of(byId[item.videoYoutubeId], item.durationSeconds),
+                DownloadStateUi.of(downloadById[item.videoYoutubeId]),
+            )
         }
     }
         .distinctUntilChanged()
@@ -57,6 +70,23 @@ class WatchlistDetailViewModel(
             mode = mode,
         )
     }
+
+    fun download(item: WatchlistItemEntity, mode: StreamMode) {
+        downloadManager.enqueue(
+            DownloadRequest(
+                videoId = item.videoYoutubeId,
+                title = item.title,
+                channelTitle = item.channelTitle,
+                thumbnail = item.thumbnail,
+                durationSeconds = item.durationSeconds,
+                mode = mode,
+            )
+        )
+    }
+
+    fun cancelDownload(item: WatchlistItemEntity) = downloadManager.cancel(item.videoYoutubeId)
+
+    fun removeDownload(item: WatchlistItemEntity) = downloadManager.remove(item.videoYoutubeId)
 
     fun remove(item: WatchlistItemEntity) {
         viewModelScope.launch { repository.removeItem(item.id) }

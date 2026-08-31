@@ -7,15 +7,26 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import com.zkwokleung.backchannel.data.DownloadRepository
+import com.zkwokleung.backchannel.data.DownloadRequest
+import com.zkwokleung.backchannel.download.DownloadManager
 import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.playback.PlaybackItems
 import com.zkwokleung.backchannel.playback.PlayerConnection
 import com.zkwokleung.backchannel.playback.QueuePlayer
+import com.zkwokleung.backchannel.ui.common.DownloadStateUi
 import com.zkwokleung.backchannel.ui.common.appActivityViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -27,7 +38,9 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun sharedPlayerViewModel(): PlayerViewModel =
-    appActivityViewModel { PlayerViewModel(it.playerConnection, it.queuePlayer) }
+    appActivityViewModel {
+        PlayerViewModel(it.playerConnection, it.queuePlayer, it.downloadRepository, it.downloadManager)
+    }
 
 data class PlayerUiState(
     val connected: Boolean = false,
@@ -59,10 +72,24 @@ data class QueueItemUi(
 class PlayerViewModel(
     private val connection: PlayerConnection,
     private val queuePlayer: QueuePlayer,
+    downloadRepository: DownloadRepository,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+    /**
+     * The current item's saved copy. Its own flow rather than a field of [uiState]: that state is
+     * rebuilt wholesale from the player on every event, and Room, not the player, knows this.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val downloadState: StateFlow<DownloadStateUi> = _uiState
+        .map { it.mediaId }
+        .distinctUntilChanged()
+        .flatMapLatest { id -> if (id == null) flowOf(null) else downloadRepository.observe(id) }
+        .map(DownloadStateUi::of)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadStateUi.None)
 
     val controller: StateFlow<MediaController?> = connection.controller
 
@@ -203,6 +230,29 @@ class PlayerViewModel(
 
     fun switchMode(mode: StreamMode) {
         queuePlayer.switchMode(mode)
+    }
+
+    fun download(mode: StreamMode) {
+        val state = _uiState.value
+        val id = state.mediaId ?: return
+        downloadManager.enqueue(
+            DownloadRequest(
+                videoId = id,
+                title = state.title,
+                channelTitle = state.artist,
+                thumbnail = state.artworkUri,
+                durationSeconds = (state.durationMs / 1000).takeIf { it > 0 },
+                mode = mode,
+            )
+        )
+    }
+
+    fun cancelDownload() {
+        _uiState.value.mediaId?.let(downloadManager::cancel)
+    }
+
+    fun removeDownload() {
+        _uiState.value.mediaId?.let(downloadManager::remove)
     }
 
     fun retry() {

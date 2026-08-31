@@ -3,14 +3,18 @@ package com.zkwokleung.backchannel.ui.channels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zkwokleung.backchannel.data.ChannelRepository
+import com.zkwokleung.backchannel.data.DownloadRepository
+import com.zkwokleung.backchannel.data.DownloadRequest
 import com.zkwokleung.backchannel.data.PlaybackRepository
 import com.zkwokleung.backchannel.data.WatchlistRepository
 import com.zkwokleung.backchannel.data.db.ChannelEntity
 import com.zkwokleung.backchannel.data.db.VideoEntity
 import com.zkwokleung.backchannel.data.db.WatchlistEntity
+import com.zkwokleung.backchannel.download.DownloadManager
 import com.zkwokleung.backchannel.engine.StreamMode
 import com.zkwokleung.backchannel.playback.QueueEntry
 import com.zkwokleung.backchannel.playback.QueuePlayer
+import com.zkwokleung.backchannel.ui.common.DownloadStateUi
 import com.zkwokleung.backchannel.ui.common.PlaybackProgressUi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -21,10 +25,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** A cached upload plus how far through it the listener already is. */
+/** A cached upload plus how far through it the listener already is, and its saved copy. */
 data class VideoRowUi(
     val video: VideoEntity,
     val progress: PlaybackProgressUi,
+    val download: DownloadStateUi,
 )
 
 class ChannelDetailViewModel(
@@ -32,6 +37,8 @@ class ChannelDetailViewModel(
     private val channelRepository: ChannelRepository,
     private val watchlistRepository: WatchlistRepository,
     private val playbackRepository: PlaybackRepository,
+    private val downloadRepository: DownloadRepository,
+    private val downloadManager: DownloadManager,
     private val queuePlayer: QueuePlayer,
 ) : ViewModel() {
 
@@ -42,10 +49,16 @@ class ChannelDetailViewModel(
     val rows: StateFlow<List<VideoRowUi>> = combine(
         channelRepository.observeVideos(channelYoutubeId),
         playbackRepository.observeAll(),
-    ) { videos, states ->
+        downloadRepository.observeAll(),
+    ) { videos, states, downloads ->
         val byId = states.associateBy { it.videoYoutubeId }
+        val downloadById = downloads.associateBy { it.videoYoutubeId }
         videos.map { video ->
-            VideoRowUi(video, PlaybackProgressUi.of(byId[video.youtubeId], video.durationSeconds))
+            VideoRowUi(
+                video,
+                PlaybackProgressUi.of(byId[video.youtubeId], video.durationSeconds),
+                DownloadStateUi.of(downloadById[video.youtubeId]),
+            )
         }
     }
         .distinctUntilChanged()
@@ -93,6 +106,24 @@ class ChannelDetailViewModel(
             mode = mode,
         )
     }
+
+    fun download(video: VideoEntity, mode: StreamMode) {
+        downloadManager.enqueue(
+            DownloadRequest(
+                videoId = video.youtubeId,
+                title = video.title,
+                channelTitle = channel.value?.title,
+                thumbnail = video.thumbnail,
+                durationSeconds = video.durationSeconds,
+                mode = mode,
+            )
+        )
+        _message.value = if (mode == StreamMode.VIDEO) "Saving video" else "Saving audio"
+    }
+
+    fun cancelDownload(video: VideoEntity) = downloadManager.cancel(video.youtubeId)
+
+    fun removeDownload(video: VideoEntity) = downloadManager.remove(video.youtubeId)
 
     fun addToWatchlist(video: VideoEntity, watchlistId: Long) {
         viewModelScope.launch {

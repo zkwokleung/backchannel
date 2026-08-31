@@ -28,6 +28,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -87,6 +89,9 @@ import com.zkwokleung.backchannel.ui.common.Thumbnail
 import com.zkwokleung.backchannel.ui.common.formatMillis
 import com.zkwokleung.backchannel.ui.theme.Spacing
 import com.zkwokleung.backchannel.ui.theme.timecode
+import com.zkwokleung.backchannel.ui.common.DownloadMenuItems
+import com.zkwokleung.backchannel.ui.common.DownloadStateUi
+import com.zkwokleung.backchannel.ui.common.rememberDownloadAction
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -107,6 +112,8 @@ fun NowPlayingScreen(
     val viewModel = sharedPlayerViewModel()
     val state by viewModel.uiState.collectAsState()
     val queue by viewModel.queue.collectAsState()
+    val downloadState by viewModel.downloadState.collectAsState()
+    val requestDownload = rememberDownloadAction()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(state.error) {
@@ -255,6 +262,10 @@ fun NowPlayingScreen(
                     SecondaryControls(
                         speed = state.speed,
                         onSpeed = viewModel::setSpeed,
+                        download = downloadState,
+                        onDownload = { mode -> requestDownload { viewModel.download(mode) } },
+                        onCancelDownload = viewModel::cancelDownload,
+                        onRemoveDownload = viewModel::removeDownload,
                         onSwitchToVideo = {
                             viewModel.switchMode(StreamMode.VIDEO)
                             onOpenVideo()
@@ -413,9 +424,14 @@ private fun TransportControls(
 private fun SecondaryControls(
     speed: Float,
     onSpeed: (Float) -> Unit,
+    download: DownloadStateUi,
+    onDownload: (StreamMode) -> Unit,
+    onCancelDownload: () -> Unit,
+    onRemoveDownload: () -> Unit,
     onSwitchToVideo: () -> Unit,
 ) {
     var speedMenu by remember { mutableStateOf(false) }
+    var downloadMenu by remember { mutableStateOf(false) }
 
     val chipShape = RoundedCornerShape(14.dp)
 
@@ -453,6 +469,47 @@ private fun SecondaryControls(
                         onClick = { speedMenu = false; onSpeed(option) },
                     )
                 }
+            }
+        }
+
+        Box {
+            val (icon, label) = when (download) {
+                DownloadStateUi.None -> Icons.Filled.Download to "Save"
+                DownloadStateUi.Queued -> Icons.Filled.Download to "Queued"
+                is DownloadStateUi.Downloading -> Icons.Filled.Download to
+                    (if (download.percent >= 100) "Finishing" else "${download.percent}%")
+                is DownloadStateUi.Downloaded -> Icons.Filled.DownloadDone to "Saved"
+                is DownloadStateUi.Failed -> Icons.Filled.Download to "Retry"
+            }
+            Row(
+                Modifier
+                    .height(44.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest, chipShape)
+                    .clickable(onClick = { downloadMenu = true }, onClickLabel = "Save for offline")
+                    .padding(horizontal = Spacing.lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(Spacing.sm))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+            DropdownMenu(expanded = downloadMenu, onDismissRequest = { downloadMenu = false }) {
+                DownloadMenuItems(
+                    state = download,
+                    onDownload = onDownload,
+                    onCancel = onCancelDownload,
+                    onRemove = onRemoveDownload,
+                    dismiss = { downloadMenu = false },
+                )
             }
         }
 
