@@ -36,6 +36,7 @@ database that never leaves the device.
 | 📋 **Watchlists** | Queue videos across channels, reorder them, play the list end to end |
 | 🔄 **Self-healing extraction** | yt-dlp updates itself inside the app, so YouTube-side breakage is fixed without a new release |
 | 🔌 **Nothing phones home** | No backend, no account, no analytics. Cached lists stay browsable offline |
+| 💾 **Save for offline** | Keep the audio (or video) of an item on the device and listen with no connection — on a flight, or to spare mobile data |
 
 ## Screens
 
@@ -127,7 +128,7 @@ Backchannel is a **personal media client for content you are authorized to acces
 video, hosts nothing, and fetches only what its operator asks for — the same posture as the yt-dlp
 tool it builds on.
 
-- ✅ Personal, on-device use
+- ✅ Personal, on-device use — saved copies live in the app's private storage and go with it on uninstall
 - ❌ Not for re-hosting, re-distributing, or serving content to other people
 - ❌ Not for circumventing DRM or accessing paid or age-gated content
 

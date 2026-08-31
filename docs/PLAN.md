@@ -68,6 +68,8 @@ All engine calls are `suspend` functions on `Dispatchers.IO`; results parse via 
 - **Watchlist** — `name`, `createdAt`; **WatchlistItem** — `watchlistId`, `videoYoutubeId`,
   `position`, `addedAt`
 - **PlaybackState** — `videoYoutubeId`, `positionSeconds`, `completed`, `updatedAt`
+- **Download** — `videoYoutubeId`, `mode`, `status`, denormalized title/thumbnail/duration/channel,
+  `filePath`, `sizeBytes`, `progressPercent`, `error`, `createdAt`, `completedAt`
 
 ## Phased Execution Plan
 
@@ -85,6 +87,9 @@ Each phase is a small reviewable slice; verify before the next.
 - **Phase 6 — Video player:** in-app video surface + Picture-in-Picture, audio/video switch.
 - **Phase 7 — Watchlists + resume:** watchlist UI, position reporting + resume wiring.
 - **Phase 8 — Polish:** error/empty states, network handling, updater UX, docs, release build.
+- **Phase 9 — Offline downloads:** yt-dlp writes audio/video to app-private storage, Room-backed
+  queue in a `dataSync` foreground service, local files served to the player, Downloads screen,
+  "Delete all" in Settings. Adds the ffmpeg artifact (arm64 split ≈ 54 MB).
 
 ## Verification
 

@@ -75,6 +75,13 @@ finished and starts over.
 
 **Refresh** — pull down (or tap the refresh icon) on a channel to re-fetch its uploads.
 
+**Save for offline** — **⋮** → *Download audio* (small) or *Download video* on any video, or
+use the *Save* chip in Now Playing. Progress shows on the row and in a notification; the same
+menu cancels a download in progress or removes a finished one. Saved items play from the device
+with no connection, keeping resume, lock-screen controls and background playback — a saved video
+also serves audio-only listening, while a saved audio track needs a connection to *Watch*.
+Settings → **Saved for offline** lists everything, with storage used, per-item retry/cancel/delete.
+
 ## Settings
 
 - **Backchannel version and update** — see "Updating the app" above.
@@ -83,6 +90,9 @@ finished and starts over.
   working.
 - **Battery optimization** — Android may kill background playback on some devices. If audio
   stops when the screen is off, open this and allow Backchannel to run unrestricted.
+- **Saved for offline** — opens the Downloads list and shows how much space it uses.
+- **Delete all downloads** — removes every saved copy after a confirmation. Watchlists and
+  playback history are untouched.
 
 ## Troubleshooting
 
@@ -94,8 +104,11 @@ finished and starts over.
 | Playback stops when screen turns off | Allow unrestricted battery use (Settings → Battery optimization). |
 | A video won't play | Age-restricted, members-only, and DRM-protected videos are not supported. |
 | Everything broke at once | YouTube likely changed something: update yt-dlp in Settings. |
+| A download failed | Tap the row to retry. "Not enough free storage" means the device is below ~200 MB free; otherwise update yt-dlp and retry. |
+| Download progress notification never appears | Allow notifications for Backchannel (asked on the first download on Android 13+). The download still runs without it. |
 
 ## Your data
 
-Channels, watchlists, and playback history live in a SQLite database inside the app's private
-storage. Nothing is uploaded anywhere. Uninstalling the app deletes all of it.
+Channels, watchlists, playback history and the list of downloads live in a SQLite database inside
+the app's private storage; saved media files sit beside it in `files/downloads`. Nothing is
+uploaded anywhere. Uninstalling the app deletes all of it.

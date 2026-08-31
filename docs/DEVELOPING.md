@@ -20,7 +20,8 @@ adb install -r app/build/outputs/apk/debug/app-x86_64-debug.apk   # emulator
 ```
 android/app/src/main/java/com/zkwokleung/backchannel/
 ├── engine/      YtdlpEngine — on-device yt-dlp: init, self-update, extraction, stream resolve
-├── data/        Room entities/DAOs + repositories (channels, watchlists, playback)
+├── data/        Room entities/DAOs + repositories (channels, watchlists, playback, downloads)
+├── download/    DownloadManager (queue worker), DownloadService (dataSync FGS), failures, seam
 ├── playback/    PlaybackService (MediaSessionService + ExoPlayer), queue, stream resolution, PiP
 ├── ui/          Compose screens: channels, watchlists, player, settings + theme
 └── AppContainer manual DI, owned by BackchannelApp
@@ -45,6 +46,20 @@ URLs (they reject the range requests ExoPlayer issues when seeking), but android
 degraded to serving only a single dead muxed format, which silently broke all playback on an
 otherwise up-to-date app. yt-dlp's maintainers keep the default client set current with
 YouTube — trusting it is what makes the extraction self-healing.
+
+**Downloads are yt-dlp writing files, with Room as the queue.** `DownloadManager` picks the oldest
+`QUEUED`/`DOWNLOADING` row, runs `YtdlpEngine.download()` (the 3-arg `execute` with a process id
+and progress callback), and writes every state change back; a relaunch requeues rows left in
+`DOWNLOADING`. Video saves need ffmpeg to mux, so the `ffmpeg` artifact is a dependency and is
+initialised right after `YoutubeDL.init` — its failure disables video saves only. Cancel is
+`destroyProcessById`, which surfaces as `YoutubeDL.CanceledException`, not an error. Files are
+`filesDir/downloads/<videoId>.<ext>`; `StreamMediaSourceFactory` asks `DownloadRepository` for a
+local file before touching the network, and a saved mp4 answers audio requests too. The
+`dataSync` foreground service is capped at ~6h/day on Android 14+, plenty for a personal queue.
+
+**Room has migrations now.** `BackchannelDatabase` is `version = 2` with `exportSchema = true`;
+adding an entity means bumping the version, adding an `AutoMigration` (or a hand-written one),
+and committing the generated `app/schemas/.../N.json`.
 
 **Video is two streams.** YouTube no longer serves its combined audio+video files: their URLs
 still resolve, but every download answers 403, no matter the client or headers. Video items are
