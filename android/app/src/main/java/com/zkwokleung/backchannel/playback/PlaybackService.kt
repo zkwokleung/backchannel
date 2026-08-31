@@ -7,12 +7,14 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.zkwokleung.backchannel.MainActivity
 import com.zkwokleung.backchannel.appContainer
+import com.zkwokleung.backchannel.engine.StreamMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -43,10 +45,18 @@ class PlaybackService : MediaSessionService() {
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000)
-        val dataSourceFactory = ResolvingStreamDataSourceFactory(httpFactory, container.engine)
+        // DefaultDataSource routes file:// (saved downloads) to FileDataSource and everything
+        // else on to HTTP; the resolver only intercepts backchannel:// URIs in between.
+        val dataSourceFactory = ResolvingStreamDataSourceFactory(
+            DefaultDataSource.Factory(this, httpFactory),
+            container.engine,
+        )
+        val mediaSourceFactory = StreamMediaSourceFactory(dataSourceFactory) { videoId, mode ->
+            container.downloadRepository.localFileFor(videoId, mode)
+        }
 
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(StreamMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -83,6 +93,15 @@ class PlaybackService : MediaSessionService() {
                     previousItemId?.let(::markCompleted)
                 }
                 previousItemId = mediaItem?.mediaId
+                // A saved video plays from one mp4 in both modes; don't decode frames nobody sees.
+                mediaItem?.let { item ->
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(
+                            C.TRACK_TYPE_VIDEO,
+                            PlaybackItems.modeOf(item) == StreamMode.AUDIO,
+                        )
+                        .build()
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
